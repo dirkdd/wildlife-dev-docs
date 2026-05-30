@@ -17,3 +17,5 @@ Author one node at a time. Steps:
 For `type: decision`, use the MADR body (Context and Problem Statement, Considered Options, Decision Outcome are required) and set `decision_status` + `deciders`.
 
 Compounding rule (invariant): every task produces two outputs: the work itself, and the vault update. When you learn something durable while working, capture it as a node (or update an existing one) before you finish. An unindexed fact is invisible to the next session.
+
+Learning capture (autonomous): when you discover something generalizable about HOW to build or document — a recurring shape the built-in node types don't fit, a technique or workflow that worked, a taxonomy gap, or a validation idea — record it immediately with the vault-learn skill before moving on. That is separate from documenting project knowledge: project facts are nodes; reusable build/document insights are learning nodes to be harvested into the plugin. A generalizable insight left uncaptured is lost.
