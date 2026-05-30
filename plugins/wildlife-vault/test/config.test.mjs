@@ -38,3 +38,20 @@ test("derives vaultName from the path when omitted, and reads domains", () => {
 test("resolveProjectDir honors --project-dir then CLAUDE_PROJECT_DIR", () => {
   assert.equal(resolveProjectDir(["node", "x", "--project-dir=/tmp/foo"]), path.resolve("/tmp/foo"));
 });
+
+test("resolveProjectDir falls back to CLAUDE_PROJECT_DIR env when no arg", () => {
+  const prev = process.env.CLAUDE_PROJECT_DIR;
+  process.env.CLAUDE_PROJECT_DIR = path.join(os.tmpdir(), "env-proj");
+  try {
+    assert.equal(resolveProjectDir(["node", "x"]), path.resolve(path.join(os.tmpdir(), "env-proj")));
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDE_PROJECT_DIR; else process.env.CLAUDE_PROJECT_DIR = prev;
+  }
+});
+
+test("vaultRoot with backslashes normalizes and derives vaultName", () => {
+  const dir = tmpProject({ vaultRoot: "docs\\vault\\Acme" });
+  const v = resolveVault(dir);
+  assert.equal(v.vaultRootRel, "docs/vault/Acme");
+  assert.equal(v.vaultName, "Acme");
+});

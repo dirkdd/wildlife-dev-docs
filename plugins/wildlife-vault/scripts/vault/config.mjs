@@ -25,12 +25,12 @@ export function resolveVault(projectDir = resolveProjectDir()) {
   } catch {
     return null;
   }
-  const vaultRootRel = cfg.vaultRoot || DEFAULT_VAULT_ROOT;
+  const vaultRootRel = (cfg.vaultRoot || DEFAULT_VAULT_ROOT).replace(/\\/g, "/");
   return {
     projectDir,
     vaultRootRel,
     vaultRoot: path.join(projectDir, vaultRootRel),
-    vaultName: cfg.vaultName || vaultRootRel.split("/").pop(),
+    vaultName: cfg.vaultName || path.basename(vaultRootRel),
     domains: Array.isArray(cfg.domains) ? cfg.domains : [],
   };
 }
