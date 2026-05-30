@@ -1,15 +1,10 @@
 // scripts/vault/schema.mjs
 // Single source of truth for the vault frontmatter contract.
 
-// The vault location. This is the ONLY place the path is defined; everything
-// imports it. To rename the vault for your project, change this one line
-// (e.g. "docs/vault/Acme") and run the INSTALL find/replace for the skill prose.
-export const VAULT_ROOT = "docs/vault/Knowledge";
-
-// Display name, derived from the path's last segment ("Knowledge"). Used in
-// generated titles and the SessionStart blurb, so renaming VAULT_ROOT renames
-// the display name too.
-export const VAULT_NAME = VAULT_ROOT.split("/").pop();
+// The vault location and display name are NO LONGER constants here. They are
+// per-project and resolved at runtime from docs/vault/.vault.json by
+// scripts/vault/config.mjs (resolveVault). This file holds only the
+// project-independent frontmatter contract.
 
 export const ROUTER_TOKEN_BUDGET = 1200;
 
@@ -42,12 +37,8 @@ export const DECISION_ONLY_RELS = ["rel_supersedes", "rel_superseded_by"];
 // Tag namespaces governed by _meta/taxonomy.md.
 export const TAG_NAMESPACES = ["domain", "audience", "area", "class"];
 
-// Domain whitelist. EMPTY on a fresh install: populate it with your project's
-// feature domains as you derive them from the PRD (see docs/seed-from-prd.md),
-// then run /vault-map to materialize a sub-index per domain. A domain/* tag
-// whose slug is not listed here is a soft warning, never a block.
-// Example (delete and replace with your own):
-//   export const DOMAIN_WHITELIST = ["billing", "auth", "search", "infra"];
+// Default domain whitelist (empty). Per-project domains come from
+// docs/vault/.vault.json ("domains": [...]); this constant is the fallback.
 export const DOMAIN_WHITELIST = [];
 
 // type -> folder (relative to VAULT_ROOT). reference/moc live in _meta.
