@@ -2,9 +2,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  VAULT_ROOT, VAULT_NAME, TYPES, DOC_CLASSES, STATUSES, PROVENANCES, CATEGORY_ORDER,
-  CATEGORY_DIRS, DOMAIN_WHITELIST, REL_KEYS,
+  TYPES, DOC_CLASSES, STATUSES, PROVENANCES, CATEGORY_ORDER,
+  CATEGORY_DIRS, REL_KEYS,
 } from "./schema.mjs";
+import { resolveVault } from "./config.mjs";
 import { buildVaultIndex } from "./vault-index.mjs";
 import { replaceMarkedRegion } from "./marker-region.mjs";
 import { nodeRow, domainsOf, TABLE_HEADER } from "./node-row.mjs";
@@ -89,9 +90,9 @@ function writeMarked(filePath, generated) {
   fs.writeFileSync(filePath, replaceMarkedRegion(content, generated), "utf-8");
 }
 
-const DOMAIN_TEMPLATE = (slug) => `---
+const DOMAIN_TEMPLATE = (slug, vaultName) => `---
 id: index-domain-${slug}
-title: "${VAULT_NAME} Vault — ${slug} domain"
+title: "${vaultName} Vault — ${slug} domain"
 type: moc
 doc_class: reference
 summary: "Map of Content for the ${slug} domain. Curated anchors + generated coverage."
@@ -113,10 +114,10 @@ rel_part_of:
 `;
 
 export function main() {
-  const meta = path.join(VAULT_ROOT, "_meta");
-  // buildVaultIndex returns { byId, nodes: [{ filePath, data }] }
-  // Map to bare frontmatter objects before passing to renderers.
-  const nodes = buildVaultIndex().nodes.map((n) => n.data);
+  const vault = resolveVault();
+  if (!vault) return; // no vault configured -> no-op
+  const meta = path.join(vault.vaultRoot, "_meta");
+  const nodes = buildVaultIndex(vault.vaultRoot).nodes.map((n) => n.data);
 
   // index-by-type
   writeMarked(path.join(meta, "index-by-type.md"), renderByType(nodes));
@@ -127,7 +128,7 @@ export function main() {
   const subIndexIds = ["index-by-type"];
   for (const slug of [...populated].sort()) {
     const file = path.join(meta, `index-domain-${slug}.md`);
-    if (!fs.existsSync(file)) fs.writeFileSync(file, DOMAIN_TEMPLATE(slug), "utf-8");
+    if (!fs.existsSync(file)) fs.writeFileSync(file, DOMAIN_TEMPLATE(slug, vault.vaultName), "utf-8");
     writeMarked(file, renderDomainCoverage(slug, nodes));
     subIndexIds.push(`index-domain-${slug}`);
   }

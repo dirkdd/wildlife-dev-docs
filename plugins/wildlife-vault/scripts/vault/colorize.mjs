@@ -1,7 +1,8 @@
 // scripts/vault/colorize.mjs
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { VAULT_ROOT, DOC_CLASSES } from "./schema.mjs";
+import { DOC_CLASSES } from "./schema.mjs";
+import { resolveVault } from "./config.mjs";
 
 export function hexToDecimal(hex) {
   return parseInt(hex.replace(/^#/, ""), 16);
@@ -21,7 +22,9 @@ export function buildColorGroups() {
 }
 
 export function main() {
-  const file = path.join(VAULT_ROOT, ".obsidian", "graph.json");
+  const vault = resolveVault();
+  if (!vault) return; // no vault configured -> no-op
+  const file = path.join(vault.vaultRoot, ".obsidian", "graph.json");
   const cfg = JSON.parse(fs.readFileSync(file, "utf-8"));
   cfg.colorGroups = buildColorGroups();
   cfg.showTags = false;

@@ -2,7 +2,7 @@
 import * as nodeFs from "node:fs";
 import * as crypto from "node:crypto";
 import * as path from "node:path";
-import { VAULT_ROOT } from "./schema.mjs";
+import { resolveVault } from "./config.mjs";
 import { buildVaultIndex } from "./vault-index.mjs";
 
 export function codeRefIssues(nodes, fsImpl = nodeFs) {
@@ -36,10 +36,12 @@ export function staleSources(manifest, currentHashes) {
 }
 
 export function main() {
+  const vault = resolveVault();
+  if (!vault) return; // no vault configured -> no-op
   // buildVaultIndex returns { byId, nodes: [{ filePath, data }] }; map to bare data objects.
-  const { nodes: rawNodes } = buildVaultIndex();
+  const { nodes: rawNodes } = buildVaultIndex(vault.vaultRoot);
   const nodes = rawNodes.map((n) => n.data);
-  const manifestPath = path.join(VAULT_ROOT, "_meta", ".manifest.json");
+  const manifestPath = path.join(vault.vaultRoot, "_meta", ".manifest.json");
   const manifest = JSON.parse(nodeFs.readFileSync(manifestPath, "utf-8"));
   const currentHashes = {};
   for (const s of manifest.sources || []) {

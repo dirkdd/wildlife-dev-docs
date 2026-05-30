@@ -2,6 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { buildVaultIndex } from "./vault-index.mjs";
+import { resolveVault } from "./config.mjs";
 import { parseFrontmatter } from "./parse-frontmatter.mjs";
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
@@ -24,8 +25,10 @@ export function findUnlinkedMentions(body, knownNodes, selfId) {
 }
 
 export function main() {
+  const vault = resolveVault();
+  if (!vault) return; // no vault configured -> no-op
   // buildVaultIndex returns { byId, nodes: [{ filePath, data }] }; map to bare data objects.
-  const { nodes: rawNodes } = buildVaultIndex();
+  const { nodes: rawNodes } = buildVaultIndex(vault.vaultRoot);
   const knownNodes = rawNodes.map((n) => n.data).filter((d) => d.id && d.title);
   let totalHits = 0;
   for (const { filePath, data } of rawNodes) {
