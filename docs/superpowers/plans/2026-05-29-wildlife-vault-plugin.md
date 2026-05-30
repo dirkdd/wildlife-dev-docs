@@ -677,7 +677,7 @@ Expected: PASS (3 tests). If `vault:lint` reports drift, that means the skeleton
 
 - [ ] **Step 3: Run the whole test suite**
 
-Run: `node --test plugins/wildlife-vault/test/`
+Run: `node --test "plugins/wildlife-vault/test/*.test.mjs"`
 Expected: PASS (all tests across the three files)
 
 - [ ] **Step 4: Commit**
@@ -1182,7 +1182,7 @@ Expected: `clean` (the spec/plan under docs/superpowers may mention it historica
 
 - [ ] **Step 3: Final full test run**
 
-Run: `node --test plugins/wildlife-vault/test/`
+Run: `node --test "plugins/wildlife-vault/test/*.test.mjs"`
 Expected: PASS (all tests).
 
 - [ ] **Step 4: Commit**
