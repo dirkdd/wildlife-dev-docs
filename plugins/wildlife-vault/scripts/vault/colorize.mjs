@@ -36,7 +36,14 @@ export function main() {
   const vault = resolveVault();
   if (!vault) return; // no vault configured -> no-op
   const file = path.join(vault.vaultRoot, ".obsidian", "graph.json");
-  const cfg = JSON.parse(fs.readFileSync(file, "utf-8"));
+  let cfg;
+  try {
+    cfg = JSON.parse(fs.readFileSync(file, "utf-8"));
+  } catch {
+    // No Obsidian config in this vault (non-Obsidian / CI). Nothing to color.
+    process.stderr.write(`vault:colorize — no ${file}; skipping (vault is not Obsidian-configured)\n`);
+    return;
+  }
   cfg.colorGroups = buildColorGroups();
   cfg.showTags = false;
   cfg.showArrow = true;

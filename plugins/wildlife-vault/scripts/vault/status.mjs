@@ -42,7 +42,14 @@ export function main() {
   const { nodes: rawNodes } = buildVaultIndex(vault.vaultRoot);
   const nodes = rawNodes.map((n) => n.data);
   const manifestPath = path.join(vault.vaultRoot, "_meta", ".manifest.json");
-  const manifest = JSON.parse(nodeFs.readFileSync(manifestPath, "utf-8"));
+  let manifest = { sources: [] };
+  try {
+    manifest = JSON.parse(nodeFs.readFileSync(manifestPath, "utf-8"));
+  } catch {
+    // No manifest yet (no sources registered). Skip the stale-source check;
+    // code_refs liveness below still runs.
+    process.stderr.write(`vault:status — no manifest at ${manifestPath}; skipping stale-source check\n`);
+  }
   const currentHashes = {};
   for (const s of manifest.sources || []) {
     // A source whose file no longer exists is excluded from currentHashes and therefore not reported as stale here (manifest-cleanup concern, not a staleness concern).

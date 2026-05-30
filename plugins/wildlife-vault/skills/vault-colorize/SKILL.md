@@ -13,7 +13,7 @@ Two steps, in order:
 
 2. **Write the color groups:**
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/vault/colorize.mjs" --project-dir="${CLAUDE_PROJECT_DIR}"`
-   It writes one `tag:#class/<doc_class>` group per doc_class into `<vault>/.obsidian/graph.json` (decimal-rgb colors, separate alpha), preserving all other graph settings. Report how many color groups were written (12).
+   It writes one `tag:#class/<doc_class>` group per doc_class into `<vault>/.obsidian/graph.json` (decimal-rgb colors, separate alpha), preserving all other graph settings. Report how many color groups were written (one per `doc_class`).
 
 **Critical gotcha — Obsidian must be CLOSED when you colorize.** Obsidian rewrites `graph.json` from memory while it is open, so a palette written while Obsidian is running gets clobbered on its next save. To make colors stick: close Obsidian fully → run the two commands above → reopen Obsidian. The color groups use `tag:#class/<value>` queries, which require Obsidian 1.4+.
 

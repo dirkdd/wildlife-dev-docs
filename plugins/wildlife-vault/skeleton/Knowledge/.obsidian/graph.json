@@ -8,87 +8,94 @@
   "collapse-color-groups": false,
   "colorGroups": [
     {
-      "query": "doc_class:\"prd\"",
+      "query": "tag:#class/prd",
       "color": {
         "a": 1,
         "rgb": 3049153
       }
     },
     {
-      "query": "doc_class:\"design\"",
+      "query": "tag:#class/design",
       "color": {
         "a": 1,
-        "rgb": 9061858
+        "rgb": 9323693
       }
     },
     {
-      "query": "doc_class:\"spec\"",
-      "color": {
-        "a": 1,
-        "rgb": 1809990
-      }
-    },
-    {
-      "query": "doc_class:\"plan\"",
-      "color": {
-        "a": 1,
-        "rgb": 13458460
-      }
-    },
-    {
-      "query": "doc_class:\"kickoff\"",
-      "color": {
-        "a": 1,
-        "rgb": 15844367
-      }
-    },
-    {
-      "query": "doc_class:\"adr\"",
-      "color": {
-        "a": 1,
-        "rgb": 8421504
-      }
-    },
-    {
-      "query": "doc_class:\"analysis\"",
-      "color": {
-        "a": 1,
-        "rgb": 12597547
-      }
-    },
-    {
-      "query": "doc_class:\"user-journey\"",
+      "query": "tag:#class/spec",
       "color": {
         "a": 1,
         "rgb": 1482885
       }
     },
     {
-      "query": "doc_class:\"runbook\"",
+      "query": "tag:#class/plan",
       "color": {
         "a": 1,
-        "rgb": 2899536
+        "rgb": 15105570
       }
     },
     {
-      "query": "doc_class:\"guide\"",
+      "query": "tag:#class/kickoff",
+      "color": {
+        "a": 1,
+        "rgb": 15844367
+      }
+    },
+    {
+      "query": "tag:#class/adr",
+      "color": {
+        "a": 1,
+        "rgb": 15158332
+      }
+    },
+    {
+      "query": "tag:#class/analysis",
       "color": {
         "a": 1,
         "rgb": 13849600
       }
     },
     {
-      "query": "doc_class:\"knowledge\"",
+      "query": "tag:#class/user-journey",
       "color": {
         "a": 1,
-        "rgb": 8359053
+        "rgb": 1752220
       }
     },
     {
-      "query": "doc_class:\"reference\"",
+      "query": "tag:#class/runbook",
       "color": {
         "a": 1,
-        "rgb": 10181046
+        "rgb": 2600544
+      }
+    },
+    {
+      "query": "tag:#class/guide",
+      "color": {
+        "a": 1,
+        "rgb": 3447003
+      }
+    },
+    {
+      "query": "tag:#class/knowledge",
+      "color": {
+        "a": 1,
+        "rgb": 9807270
+      }
+    },
+    {
+      "query": "tag:#class/reference",
+      "color": {
+        "a": 1,
+        "rgb": 13159888
+      }
+    },
+    {
+      "query": "tag:#class/learning",
+      "color": {
+        "a": 1,
+        "rgb": 15277667
       }
     }
   ],

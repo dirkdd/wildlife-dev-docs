@@ -13,7 +13,7 @@ Review a pasted learnings digest and propose concrete plugin changes. Run this O
    - **validation** → a new rule in the appropriate pass in `scripts/vault/passes.mjs`, WITH a unit test. State whether it is a hard block or a soft warning.
    - **strategy** / **technique** → an edit to the authoring guidance in `skills/vault-author/SKILL.md` or `skills/vault-new/SKILL.md`, or a new skill if it is a distinct operator action.
 
-3. Present each proposal as: the source learning (id + summary), the exact files to change, and a diff/sketch of the change, plus a recommended `adopted_in` version (read the current version from `.claude-plugin/plugin.json` and suggest the next bump).
+3. Present each proposal as: the source learning (id + summary), the exact files to change, and a diff/sketch of the change, plus a recommended `adopted_in` version (read the current version from `plugins/wildlife-vault/.claude-plugin/plugin.json` — the plugin manifest, not the root `.claude-plugin/marketplace.json` — and suggest the next bump).
 
 4. Apply NOTHING until the user approves. On approval, implement via the normal TDD flow (write/adjust tests first where code is involved) and keep changes scoped to the approved proposals.
 
