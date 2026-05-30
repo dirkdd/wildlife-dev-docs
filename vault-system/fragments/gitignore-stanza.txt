@@ -1,0 +1,8 @@
+# Vault: ignore Obsidian per-user state, whitelist the committed config
+docs/vault/Knowledge/.obsidian/*
+!docs/vault/Knowledge/.obsidian/app.json
+!docs/vault/Knowledge/.obsidian/appearance.json
+!docs/vault/Knowledge/.obsidian/core-plugins.json
+!docs/vault/Knowledge/.obsidian/community-plugins.json
+!docs/vault/Knowledge/.obsidian/graph.json
+!docs/vault/Knowledge/.obsidian/hotkeys.json

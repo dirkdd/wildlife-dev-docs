@@ -1,0 +1,6 @@
+{
+  "vault:lint": "node scripts/vault/validate.mjs --all",
+  "vault:map": "node scripts/vault/index.mjs",
+  "vault:colorize": "node scripts/vault/colorize.mjs",
+  "vault:status": "node scripts/vault/status.mjs"
+}

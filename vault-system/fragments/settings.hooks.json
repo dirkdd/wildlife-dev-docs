@@ -1,0 +1,44 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/scripts/vault/validate.mjs", "--mode=pre"],
+            "timeout": 30,
+            "statusMessage": "Validating vault node..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/scripts/vault/validate.mjs", "--mode=post"],
+            "timeout": 60,
+            "statusMessage": "Validating vault node (re-read)..."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/scripts/vault/session-context.mjs"],
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
