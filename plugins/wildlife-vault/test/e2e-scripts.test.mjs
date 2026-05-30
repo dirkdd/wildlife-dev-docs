@@ -71,6 +71,48 @@ test("init.mjs is idempotent and never clobbers existing vault content", () => {
   assert.equal(fs.readFileSync(marker, "utf8"), "preserve me", "existing content preserved");
 });
 
+test("a learning node in _meta/learnings lints clean after a single map", () => {
+  const dir = freshProjectWithVault();
+  const learnDir = path.join(dir, "docs", "vault", "Knowledge", "_meta", "learnings");
+  fs.mkdirSync(learnDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(learnDir, "learning-prefer-stub-then-link.md"),
+    [
+      "---",
+      "id: learning-prefer-stub-then-link",
+      'title: "Stub relation targets before linking during bulk seeding"',
+      "type: learning",
+      "doc_class: learning",
+      "learning_kind: strategy",
+      'summary: "When seeding many related nodes, create stub targets first so rel_* links resolve on first write."',
+      "status: draft",
+      "learning_status: proposed",
+      'adopted_in: ""',
+      "provenance: inferred",
+      'tags: ["area/meta", "class/learning"]',
+      "updated: 2026-05-30",
+      "rel_related: []",
+      "---",
+      "## Generalized insight",
+      "",
+      "Create relation targets as stubs before authoring nodes that link to them.",
+      "",
+      "## In-project evidence",
+      "",
+      "Seeding hit a missing-target error on rel_related.",
+      "",
+      "## Proposed plugin change",
+      "",
+      "A bulk-seed mode that two-passes: stubs then links.",
+      "",
+    ].join("\n")
+  );
+  assert.equal(run("index.mjs", dir).code, 0, "map should exit 0");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 0, `lint should be clean:\n${lint.out}`);
+  assert.match(lint.out, /0 hard/);
+});
+
 test("a single vault-map run leaves lint clean when a new domain is introduced", () => {
   const dir = freshProjectWithVault();
   // author one content node carrying a domain tag with no pre-existing sub-index

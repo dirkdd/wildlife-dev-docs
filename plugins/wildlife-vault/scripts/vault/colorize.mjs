@@ -22,6 +22,7 @@ const COLORS = {
   guide: "#3498DB",
   knowledge: "#95A5A6",
   reference: "#C8CDD0",
+  learning: "#E91E63",
 };
 
 export function buildColorGroups() {

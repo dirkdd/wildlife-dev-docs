@@ -10,12 +10,12 @@ export const ROUTER_TOKEN_BUDGET = 1200;
 
 export const TYPES = [
   "concept", "module", "flow", "data", "invariant",
-  "decision", "runbook", "guide", "reference", "moc",
+  "decision", "runbook", "guide", "reference", "moc", "learning",
 ];
 
 export const DOC_CLASSES = [
   "prd", "design", "spec", "plan", "kickoff", "adr",
-  "analysis", "user-journey", "runbook", "guide", "knowledge", "reference",
+  "analysis", "user-journey", "runbook", "guide", "knowledge", "reference", "learning",
 ];
 
 export const STATUSES = ["draft", "canonical", "stale", "deprecated"];
@@ -53,12 +53,13 @@ export const CATEGORY_DIRS = {
   guide: "guides",
   reference: "_meta",
   moc: "_meta",
+  learning: "_meta",
 };
 
 // Stable ordering for generated indexes; "other" absorbs unregistered types.
 export const CATEGORY_ORDER = [
   "moc", "concept", "module", "flow", "data", "invariant",
-  "decision", "runbook", "guide", "reference", "other",
+  "decision", "runbook", "guide", "learning", "reference", "other",
 ];
 
 // Forced type -> doc_class consistency. Types absent here vary independently.
@@ -66,6 +67,7 @@ export const TYPE_DOC_CLASS = {
   decision: "adr",
   runbook: "runbook",
   moc: "reference",
+  learning: "learning",
 };
 
 // Inverse labels for derivation/export only; never stored in frontmatter.
