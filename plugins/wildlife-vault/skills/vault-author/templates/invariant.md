@@ -6,7 +6,7 @@ doc_class: knowledge
 summary: "PLACEHOLDER: the rule in one sentence and what breaks when it is violated."
 status: draft
 provenance: inferred
-tags: ["domain/PLACEHOLDER", "audience/engineering"]
+tags: ["domain/PLACEHOLDER", "audience/engineering", "class/knowledge"]
 updated: YYYY-MM-DD
 aliases: []
 sources: []

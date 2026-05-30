@@ -7,7 +7,7 @@ diataxis: how-to
 summary: "PLACEHOLDER: one sentence on what this runbook helps an operator do."
 status: draft
 provenance: inferred
-tags: ["domain/PLACEHOLDER", "audience/ops"]
+tags: ["domain/PLACEHOLDER", "audience/ops", "class/runbook"]
 updated: YYYY-MM-DD
 aliases: []
 sources: []

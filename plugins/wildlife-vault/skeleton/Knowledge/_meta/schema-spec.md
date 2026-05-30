@@ -6,7 +6,7 @@ doc_class: reference
 summary: "Full human-facing frontmatter contract: fields, enums, rel_* semantics."
 status: canonical
 provenance: verified
-tags: ["area/meta"]
+tags: ["area/meta", "class/reference"]
 updated: 2026-05-29
 rel_part_of:
   - "[[index]]"

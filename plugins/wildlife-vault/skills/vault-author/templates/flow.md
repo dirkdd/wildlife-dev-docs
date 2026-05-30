@@ -7,7 +7,7 @@ c4_level: container
 summary: "PLACEHOLDER: one or two sentences that appear verbatim in the index."
 status: draft
 provenance: inferred
-tags: ["domain/PLACEHOLDER", "audience/engineering"]
+tags: ["domain/PLACEHOLDER", "audience/engineering", "class/design"]
 updated: YYYY-MM-DD
 aliases: []
 sources: []

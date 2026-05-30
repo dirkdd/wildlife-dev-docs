@@ -8,7 +8,7 @@ status: draft
 provenance: inferred
 decision_status: proposed
 deciders: []
-tags: ["domain/PLACEHOLDER"]
+tags: ["domain/PLACEHOLDER", "class/adr"]
 updated: YYYY-MM-DD
 aliases: []
 sources: []

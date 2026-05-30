@@ -3,10 +3,18 @@ name: vault-colorize
 description: Regenerate the Obsidian graph color groups for docs/vault/Knowledge from the doc_class enum. Use when asked to update graph colors, after adding a new doc_class, or when colors look wrong in the Obsidian graph.
 allowed-tools: Bash
 ---
-Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/vault/colorize.mjs" --project-dir="${CLAUDE_PROJECT_DIR}"`. It rewrites the `colorGroups` array in `docs/vault/Knowledge/.obsidian/graph.json` from the `DOC_CLASSES` enum in the plugin's `scripts/vault/schema.mjs`, preserving all other graph settings.
+Regenerate the Obsidian graph color groups for the vault. Colors are keyed by a `class/<doc_class>` mirror tag (NOT by a frontmatter property — property-based color queries silently match nothing on many Obsidian builds).
 
-After it completes, report how many color groups were written.
+Two steps, in order:
 
-Remind the user: reload the Obsidian graph (close and reopen the Graph view, or restart Obsidian) to see the updated colors. The color groups use `doc_class:"<value>"` property queries, which require Obsidian 1.4+.
+1. **Backfill the mirror tags** so every node carries `class/<doc_class>`:
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/vault/add-class-tags.mjs" --project-dir="${CLAUDE_PROJECT_DIR}"`
+   It is idempotent; report how many nodes it tagged vs. were already tagged. Any node reported as `[skip non-inline tags]` has a multi-line `tags:` block — normalize it to an inline array by hand, then re-run.
 
-The command is idempotent and non-destructive to other `graph.json` keys (`showTags`, `showArrow`, `hideUnresolved`, etc.).
+2. **Write the color groups:**
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/vault/colorize.mjs" --project-dir="${CLAUDE_PROJECT_DIR}"`
+   It writes one `tag:#class/<doc_class>` group per doc_class into `<vault>/.obsidian/graph.json` (decimal-rgb colors, separate alpha), preserving all other graph settings. Report how many color groups were written (12).
+
+**Critical gotcha — Obsidian must be CLOSED when you colorize.** Obsidian rewrites `graph.json` from memory while it is open, so a palette written while Obsidian is running gets clobbered on its next save. To make colors stick: close Obsidian fully → run the two commands above → reopen Obsidian. The color groups use `tag:#class/<value>` queries, which require Obsidian 1.4+.
+
+The commands are idempotent and non-destructive to other `graph.json` keys (`showTags`, `showArrow`, `hideUnresolved`, etc.).

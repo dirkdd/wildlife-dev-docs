@@ -31,7 +31,7 @@ Scaffold and author a new vault node. Steps:
    - `doc_class`: suggest a sensible default (concept/flow/data/invariant -> `knowledge` or `design`; decision -> `adr`; runbook -> `runbook`; guide -> `guide`)
    - `status: draft`
    - `provenance: inferred`
-   - `tags`: prompt for at least one `domain/*` tag
+   - `tags`: prompt for at least one `domain/*` tag, and always include the mirror tag `class/<doc_class>` matching the node's `doc_class` (the Obsidian graph colors by this tag)
    - `updated`: today's date (ISO)
 
 6. Write the scaffolded file. The PreToolUse hook validates it; fix any rejection before proceeding.

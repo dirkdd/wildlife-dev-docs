@@ -6,7 +6,7 @@ doc_class: knowledge
 summary: "PLACEHOLDER: one or two sentences that appear verbatim in the index."
 status: draft
 provenance: inferred
-tags: ["domain/PLACEHOLDER"]
+tags: ["domain/PLACEHOLDER", "class/knowledge"]
 updated: YYYY-MM-DD
 aliases: []
 sources: []

@@ -7,7 +7,7 @@ diataxis: how-to
 summary: "PLACEHOLDER: one or two sentences on what the reader will be able to do after reading."
 status: draft
 provenance: inferred
-tags: ["domain/PLACEHOLDER", "audience/engineering"]
+tags: ["domain/PLACEHOLDER", "audience/engineering", "class/guide"]
 updated: YYYY-MM-DD
 aliases: []
 sources: []

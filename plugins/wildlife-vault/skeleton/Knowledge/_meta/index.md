@@ -6,7 +6,7 @@ doc_class: reference
 summary: "Tier-0 router. Read first. Routes to sub-indexes; open node bodies on demand."
 status: canonical
 provenance: verified
-tags: ["area/meta"]
+tags: ["area/meta", "class/reference"]
 updated: 2026-05-29
 ---
 # Vault: Router
