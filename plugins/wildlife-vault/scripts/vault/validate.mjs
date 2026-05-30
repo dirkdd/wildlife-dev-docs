@@ -2,7 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { VAULT_ROOT } from "./schema.mjs";
+import { resolveVault, resolveProjectDir } from "./config.mjs";
 import { parseFrontmatter } from "./parse-frontmatter.mjs";
 import { buildVaultIndex, listVaultMarkdown } from "./vault-index.mjs";
 import { pass1Schema, pass2Structural, pass3Graph } from "./passes.mjs";
@@ -26,10 +26,12 @@ export function validateContent(filePath, content, ctx = {}) {
   };
 }
 
-function isVaultFile(p) {
-  if (!p || !p.endsWith(".md")) return false;
-  const norm = p.replace(/\\/g, "/");
-  return norm.includes(`${VAULT_ROOT}/`) && !norm.split("/").includes("_raw");
+export function isVaultFile(absVaultRoot, p) {
+  if (!absVaultRoot || !p || !p.endsWith(".md")) return false;
+  const norm = path.resolve(p).replace(/\\/g, "/");
+  const root = path.resolve(absVaultRoot).replace(/\\/g, "/").replace(/\/+$/, "");
+  if (norm !== root && !norm.startsWith(root + "/")) return false;
+  return !norm.slice(root.length).split("/").includes("_raw");
 }
 
 function readStdin() {
@@ -74,11 +76,15 @@ function main() {
   const all = process.argv.includes("--all");
   const now = Date.now();
 
+  const projectDir = resolveProjectDir();
+  const vault = resolveVault(projectDir);
+  if (!vault) process.exit(0); // no vault configured in this project -> no-op
+
   if (all) {
-    const { byId, nodes: rawNodes } = buildVaultIndex();
+    const { byId, nodes: rawNodes } = buildVaultIndex(vault.vaultRoot);
     let hardCount = 0;
     let softCount = 0;
-    for (const filePath of listVaultMarkdown()) {
+    for (const filePath of listVaultMarkdown(vault.vaultRoot)) {
       const content = fs.readFileSync(filePath, "utf-8");
       // exclude self from the known-id set so duplicate-id only fires on real dupes
       const knownIds = new Set([...byId.keys()].filter((id) => path.resolve(byId.get(id)) !== path.resolve(filePath)));
@@ -90,12 +96,12 @@ function main() {
     // Index-drift gates: run after per-file loop.
     // buildVaultIndex returns { nodes: [{ filePath, data }] }; map to bare data objects.
     const nodes = rawNodes.map((n) => n.data);
-    const byTypeFile = path.join(VAULT_ROOT, "_meta", "index-by-type.md");
+    const byTypeFile = path.join(vault.vaultRoot, "_meta", "index-by-type.md");
     let byTypeBody = "";
     try { byTypeBody = fs.readFileSync(byTypeFile, "utf-8"); } catch { /* file may not exist yet */ }
 
     // Derive existing domain-index ids by listing index-domain-*.md filenames.
-    const metaDir = path.join(VAULT_ROOT, "_meta");
+    const metaDir = path.join(vault.vaultRoot, "_meta");
     let domainIndexIds = [];
     try {
       domainIndexIds = fs.readdirSync(metaDir)
@@ -123,7 +129,7 @@ function main() {
   if (raw.trim()) { try { hookInput = JSON.parse(raw); } catch { /* fall through */ } }
 
   const filePath = hookInput?.tool_input?.file_path || arg("file");
-  if (!isVaultFile(filePath)) process.exit(0); // PATH GUARD
+  if (!isVaultFile(vault.vaultRoot, filePath)) process.exit(0); // PATH GUARD
 
   let content;
   if (mode === "pre") {
@@ -135,7 +141,7 @@ function main() {
     catch { emitHard(mode, [`file unreadable after write: ${filePath}`]); return; }
   }
 
-  const { byId } = buildVaultIndex(VAULT_ROOT, filePath);
+  const { byId } = buildVaultIndex(vault.vaultRoot, filePath);
   const r = validateContent(filePath, content, { knownIds: new Set(byId.keys()), now });
   if (r.hard.length) emitHard(mode, r.hard);
   emitSoft(r.soft);
