@@ -1,0 +1,14 @@
+{
+  "name": "wildlife-ai",
+  "owner": {
+    "name": "Wildlife AI",
+    "email": "dirk@wildlifeai.co"
+  },
+  "plugins": [
+    {
+      "name": "wildlife-vault",
+      "source": "./plugins/wildlife-vault",
+      "description": "Agent-maintained, Obsidian-compatible knowledge vault for a code project: typed Markdown nodes, validation hooks, generated indexes."
+    }
+  ]
+}
