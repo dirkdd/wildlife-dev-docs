@@ -8,16 +8,26 @@ export function hexToDecimal(hex) {
   return parseInt(hex.replace(/^#/, ""), 16);
 }
 
-// Stable palette; cycles if doc_class count exceeds entries.
-const PALETTE = [
-  "#2E86C1", "#8A45E2", "#1B9E46", "#CD5C1C", "#F1C40F", "#808080",
-  "#C0392B", "#16A085", "#2C3E50", "#D35400", "#7F8C8D", "#9B59B6",
-];
+// doc_class -> hex. knowledge/reference stay neutral gray so special classes pop.
+const COLORS = {
+  prd: "#2E86C1",
+  design: "#8E44AD",
+  spec: "#16A085",
+  plan: "#E67E22",
+  kickoff: "#F1C40F",
+  adr: "#E74C3C",
+  analysis: "#D35400",
+  "user-journey": "#1ABC9C",
+  runbook: "#27AE60",
+  guide: "#3498DB",
+  knowledge: "#95A5A6",
+  reference: "#C8CDD0",
+};
 
 export function buildColorGroups() {
-  return DOC_CLASSES.map((dc, i) => ({
-    query: `doc_class:"${dc}"`,
-    color: { a: 1, rgb: hexToDecimal(PALETTE[i % PALETTE.length]) },
+  return DOC_CLASSES.map((dc) => ({
+    query: `tag:#class/${dc}`,
+    color: { a: 1, rgb: hexToDecimal(COLORS[dc] || "#808080") },
   }));
 }
 

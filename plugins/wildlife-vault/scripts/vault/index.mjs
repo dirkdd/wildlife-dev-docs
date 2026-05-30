@@ -98,7 +98,7 @@ doc_class: reference
 summary: "Map of Content for the ${slug} domain. Curated anchors + generated coverage."
 status: draft
 provenance: extracted
-tags: ["area/meta", "domain/${slug}"]
+tags: ["area/meta", "domain/${slug}", "class/reference"]
 updated: ${new Date().toISOString().slice(0, 10)}
 rel_part_of:
   - "[[index]]"
