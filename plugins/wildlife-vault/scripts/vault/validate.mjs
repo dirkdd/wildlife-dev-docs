@@ -119,7 +119,7 @@ function main() {
       process.stderr.write(`[HARD] index-drift\n  - ${driftHard.join("\n  - ")}\n`);
     }
 
-    process.stdout.write(`vault:lint complete — ${hardCount} hard, ${softCount} soft\n`);
+    process.stderr.write(`vault:lint complete — ${hardCount} hard, ${softCount} soft\n`);
     process.exit(hardCount ? 1 : 0);
   }
 

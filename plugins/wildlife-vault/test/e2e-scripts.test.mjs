@@ -3,20 +3,16 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 
 const SCRIPTS = path.resolve("plugins/wildlife-vault/scripts/vault");
 const SKELETON = path.resolve("plugins/wildlife-vault/skeleton/Knowledge");
 
 function run(script, projectDir, extra = []) {
-  try {
-    const out = execFileSync(process.execPath,
-      [path.join(SCRIPTS, script), `--project-dir=${projectDir}`, ...extra],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    return { code: 0, out };
-  } catch (e) {
-    return { code: e.status, out: `${e.stdout || ""}${e.stderr || ""}` };
-  }
+  const r = spawnSync(process.execPath,
+    [path.join(SCRIPTS, script), `--project-dir=${projectDir}`, ...extra],
+    { encoding: "utf8" });
+  return { code: r.status, out: `${r.stdout || ""}${r.stderr || ""}` };
 }
 
 function freshProjectWithVault() {
