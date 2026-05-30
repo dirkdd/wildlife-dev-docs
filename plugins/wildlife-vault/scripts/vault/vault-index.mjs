@@ -1,11 +1,10 @@
 // scripts/vault/vault-index.mjs
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { VAULT_ROOT } from "./schema.mjs";
 import { parseFrontmatter } from "./parse-frontmatter.mjs";
 
-export function listVaultMarkdown(root = VAULT_ROOT) {
-  if (!fs.existsSync(root)) return [];
+export function listVaultMarkdown(root) {
+  if (!root || !fs.existsSync(root)) return [];
   const entries = fs.readdirSync(root, { recursive: true });
   return entries
     .map((e) => path.join(root, e.toString()))
@@ -15,7 +14,7 @@ export function listVaultMarkdown(root = VAULT_ROOT) {
 }
 
 // Returns { byId: Map<id, filePath>, nodes: [{ filePath, data }] }
-export function buildVaultIndex(root = VAULT_ROOT, exceptFile = null) {
+export function buildVaultIndex(root, exceptFile = null) {
   const byId = new Map();
   const nodes = [];
   for (const filePath of listVaultMarkdown(root)) {
