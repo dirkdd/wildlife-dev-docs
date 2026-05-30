@@ -70,3 +70,33 @@ test("init.mjs is idempotent and never clobbers existing vault content", () => {
   assert.equal(r2.code, 0);
   assert.equal(fs.readFileSync(marker, "utf8"), "preserve me", "existing content preserved");
 });
+
+test("a single vault-map run leaves lint clean when a new domain is introduced", () => {
+  const dir = freshProjectWithVault();
+  // author one content node carrying a domain tag with no pre-existing sub-index
+  fs.writeFileSync(
+    path.join(dir, "docs", "vault", "Knowledge", "concepts", "c1.md"),
+    [
+      "---",
+      "id: c1",
+      "title: C1",
+      "type: concept",
+      "doc_class: knowledge",
+      "summary: A node in the capture domain to exercise sub-index creation in one pass.",
+      "status: draft",
+      "provenance: inferred",
+      'tags: ["domain/capture"]',
+      "updated: 2026-05-30",
+      "---",
+      "# C1",
+      "",
+      "Body.",
+      "",
+    ].join("\n")
+  );
+  // ONE map run, then lint must be clean (no second map)
+  assert.equal(run("index.mjs", dir).code, 0, "map should exit 0");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 0, `lint should be clean after a single map:\n${lint.out}`);
+  assert.match(lint.out, /0 hard/);
+});

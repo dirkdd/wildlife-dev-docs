@@ -117,12 +117,27 @@ export function main() {
   const vault = resolveVault();
   if (!vault) return; // no vault configured -> no-op
   const meta = path.join(vault.vaultRoot, "_meta");
-  const nodes = buildVaultIndex(vault.vaultRoot).nodes.map((n) => n.data);
 
-  // index-by-type
+  // First scan: existing nodes.
+  let nodes = buildVaultIndex(vault.vaultRoot).nodes.map((n) => n.data);
+
+  // Create any missing per-domain sub-index files BEFORE rendering index-by-type,
+  // so the new moc nodes are visible to the re-scan below (single-pass idempotency:
+  // otherwise index-by-type omits them and /vault-lint reports index-drift).
+  const initialDomains = new Set();
+  for (const n of nodes) for (const d of domainsOf(n)) initialDomains.add(d);
+  for (const slug of [...initialDomains].sort()) {
+    const file = path.join(meta, `index-domain-${slug}.md`);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, DOMAIN_TEMPLATE(slug, vault.vaultName), "utf-8");
+  }
+
+  // Re-scan so freshly created index-domain-* moc nodes are part of the node set.
+  nodes = buildVaultIndex(vault.vaultRoot).nodes.map((n) => n.data);
+
+  // index-by-type (now includes the moc domain nodes)
   writeMarked(path.join(meta, "index-by-type.md"), renderByType(nodes));
 
-  // per-domain sub-indexes for populated domains
+  // per-domain sub-indexes: write coverage + collect ids
   const populated = new Set();
   for (const n of nodes) for (const d of domainsOf(n)) populated.add(d);
   const subIndexIds = ["index-by-type"];
