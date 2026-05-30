@@ -156,3 +156,68 @@ test("a single vault-map run leaves lint clean when a new domain is introduced",
   assert.equal(lint.code, 0, `lint should be clean after a single map:\n${lint.out}`);
   assert.match(lint.out, /0 hard/);
 });
+
+function writeLearning(dir, id, learning_status, evidence) {
+  const ld = path.join(dir, "docs", "vault", "Knowledge", "_meta", "learnings");
+  fs.mkdirSync(ld, { recursive: true });
+  fs.writeFileSync(path.join(ld, `${id}.md`), [
+    "---",
+    `id: ${id}`,
+    `title: "${id}"`,
+    "type: learning",
+    "doc_class: learning",
+    "learning_kind: strategy",
+    'summary: "A generalized, shareable claim."',
+    "status: draft",
+    `learning_status: ${learning_status}`,
+    'adopted_in: ""',
+    "provenance: inferred",
+    'tags: ["area/meta", "class/learning"]',
+    "updated: 2026-05-30",
+    "rel_related: []",
+    "---",
+    "## Generalized insight",
+    "",
+    "Stub relation targets before linking.",
+    "",
+    "## In-project evidence",
+    "",
+    `${evidence}`,
+    "",
+    "## Proposed plugin change",
+    "",
+    "A two-pass bulk-seed mode.",
+    "",
+  ].join("\n"));
+}
+
+test("learnings export prints only proposed nodes, strips evidence, and stamps harvested", () => {
+  const dir = freshProjectWithVault();
+  writeLearning(dir, "learning-a", "proposed", "SECRET Acme evidence here.");
+  writeLearning(dir, "learning-b", "harvested", "already harvested secret.");
+  const r = run("learnings-export.mjs", dir);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /learning-a/);            // proposed -> included
+  assert.doesNotMatch(r.out, /learning-b/);     // already harvested -> excluded
+  assert.doesNotMatch(r.out, /SECRET Acme/);    // evidence stripped
+  // after a non-dry run, learning-a is now harvested
+  const after = fs.readFileSync(path.join(dir, "docs", "vault", "Knowledge", "_meta", "learnings", "learning-a.md"), "utf8");
+  assert.match(after, /learning_status: harvested/);
+});
+
+test("learnings export --dry-run does not stamp", () => {
+  const dir = freshProjectWithVault();
+  writeLearning(dir, "learning-c", "proposed", "evidence.");
+  const r = run("learnings-export.mjs", dir, ["--dry-run"]);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /learning-c/);
+  const after = fs.readFileSync(path.join(dir, "docs", "vault", "Knowledge", "_meta", "learnings", "learning-c.md"), "utf8");
+  assert.match(after, /learning_status: proposed/); // unchanged
+});
+
+test("learnings export no-ops (prints nothing) when no vault", () => {
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), "learn-export-bare-"));
+  const r = run("learnings-export.mjs", bare);
+  assert.equal(r.code, 0);
+  assert.equal(r.out.trim(), "");
+});
