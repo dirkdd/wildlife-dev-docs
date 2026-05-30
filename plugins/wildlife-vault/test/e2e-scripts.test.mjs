@@ -113,6 +113,20 @@ test("a learning node in _meta/learnings lints clean after a single map", () => 
   assert.match(lint.out, /0 hard/);
 });
 
+test("learn-sweep no-ops silently on a project with no vault", () => {
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), "sweep-bare-"));
+  const r = run("learn-sweep.mjs", bare);
+  assert.equal(r.code, 0);
+  assert.equal(r.out.trim(), "");
+});
+
+test("learn-sweep emits a nudge when the vault has recent changes", () => {
+  const dir = freshProjectWithVault(); // freshly copied skeleton -> recent mtimes, no git
+  const r = run("learn-sweep.mjs", dir);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /\/vault-learn/);
+});
+
 test("a single vault-map run leaves lint clean when a new domain is introduced", () => {
   const dir = freshProjectWithVault();
   // author one content node carrying a domain tag with no pre-existing sub-index
