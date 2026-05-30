@@ -3,7 +3,7 @@ name: vault-colorize
 description: Regenerate the Obsidian graph color groups for docs/vault/Knowledge from the doc_class enum. Use when asked to update graph colors, after adding a new doc_class, or when colors look wrong in the Obsidian graph.
 allowed-tools: Bash
 ---
-Run `npm run vault:colorize` from the repo root. It rewrites the `colorGroups` array in `docs/vault/Knowledge/.obsidian/graph.json` from the `DOC_CLASSES` enum in `scripts/vault/schema.mjs`, preserving all other graph settings.
+Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/vault/colorize.mjs" --project-dir="${CLAUDE_PROJECT_DIR}"`. It rewrites the `colorGroups` array in `docs/vault/Knowledge/.obsidian/graph.json` from the `DOC_CLASSES` enum in the plugin's `scripts/vault/schema.mjs`, preserving all other graph settings.
 
 After it completes, report how many color groups were written.
 

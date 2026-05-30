@@ -3,7 +3,7 @@ name: vault-map
 description: Regenerate the vault router and all sub-indexes (index-by-type, index-domain-*, schema mirror) from live frontmatter. Use when asked to regenerate the index, update the vault map, or after adding or moving nodes.
 allowed-tools: Bash, Read
 ---
-Run `npm run vault:map` from the repo root. It regenerates the `<!-- vault-map:begin/end -->` regions in `_meta/index.md`, `_meta/index-by-type.md`, every `_meta/index-domain-*.md`, and `_meta/schema.md` from live node frontmatter.
+Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/vault/index.mjs" --project-dir="${CLAUDE_PROJECT_DIR}"`. It regenerates the `<!-- vault-map:begin/end -->` regions in `_meta/index.md`, `_meta/index-by-type.md`, every `_meta/index-domain-*.md`, and `_meta/schema.md` from live node frontmatter.
 
 After it completes, report the node count, domain count, and sub-index count from the script output.
 
