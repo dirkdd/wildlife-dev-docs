@@ -47,3 +47,26 @@ test("session-context emits a pointer when a vault exists", () => {
   assert.equal(r.code, 0);
   assert.match(r.out, /Knowledge vault/);
 });
+
+test("init.mjs scaffolds a vault, writes .vault.json, and lints clean", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-init-"));
+  // init.mjs lives in SCRIPTS and reads skeleton/fragments relative to itself
+  const r = run("init.mjs", dir, ["--name=Knowledge"]);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(fs.existsSync(path.join(dir, "docs", "vault", ".vault.json")), ".vault.json written");
+  assert.ok(fs.existsSync(path.join(dir, "docs", "vault", "Knowledge", "_meta", "index.md")), "router exists");
+  const cfg = JSON.parse(fs.readFileSync(path.join(dir, "docs", "vault", ".vault.json"), "utf8"));
+  assert.equal(cfg.vaultName, "Knowledge");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 0, lint.out);
+});
+
+test("init.mjs is idempotent and never clobbers existing vault content", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-init2-"));
+  run("init.mjs", dir, ["--name=Knowledge"]);
+  const marker = path.join(dir, "docs", "vault", "Knowledge", "concepts", "keep.md");
+  fs.writeFileSync(marker, "preserve me");
+  const r2 = run("init.mjs", dir, ["--name=Knowledge"]);
+  assert.equal(r2.code, 0);
+  assert.equal(fs.readFileSync(marker, "utf8"), "preserve me", "existing content preserved");
+});
