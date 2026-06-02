@@ -5,8 +5,11 @@ Private Claude Code marketplace (`wildlife-ai`) hosting the **wildlife-vault** p
 ## Use it
 
 ```
-/plugin marketplace add wildlife-ai/wildlife-dev-docs
+/plugin marketplace add dirkdd/wildlife-dev-docs
 /plugin install wildlife-vault@wildlife-ai
 ```
+
+> The marketplace is hosted at `dirkdd/wildlife-dev-docs` (private). The `@wildlife-ai`
+> suffix is the marketplace's internal name, not the GitHub owner.
 
 The plugin lives in [`plugins/wildlife-vault/`](plugins/wildlife-vault/). See its README for usage. Design and implementation history are under `docs/superpowers/`.
