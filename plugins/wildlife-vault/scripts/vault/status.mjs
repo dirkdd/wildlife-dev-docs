@@ -5,16 +5,53 @@ import * as path from "node:path";
 import { resolveVault } from "./config.mjs";
 import { buildVaultIndex } from "./vault-index.mjs";
 
-export function codeRefIssues(nodes, fsImpl = nodeFs) {
+const RE_META = /[.*+?^${}()|[\]\\]/g;
+
+// Resolve a `#symbol` half of a code_ref against a file body.
+//
+// A single-segment symbol is matched exactly as before (literal substring).
+// A DOTTED symbol (`Class.method`, `Module.CONST`) is resolved part-wise on its
+// final segment, because no mainstream language writes `Class.method` at the
+// definition site — Python writes `def method`, TypeScript writes `method(`.
+// The old literal test could therefore only ever fail for the dotted form, which
+// made every dotted ref a permanent false positive and trained readers to ignore
+// the whole warning list.
+//
+// Known trade: the final-segment match is deliberately loose (a bare mention of
+// `method` anywhere in the file passes). This probe's job is to catch a symbol
+// that has VANISHED; a false negative there costs far less than a warning list
+// that is 100% noise.
+export function symbolPresent(body, sym) {
+  const s = String(sym);
+  const parts = s.split(".");
+  if (parts.length === 1) return body.includes(s); // unchanged path
+  const raw = parts[parts.length - 1];
+  if (!raw) return body.includes(s);
+  // Word boundaries spelled out as lookaround, and applied only on the sides
+  // where the segment's own edge is a word character. \b would invert its
+  // meaning on a segment like `on(` or `get*` and silently mis-resolve it.
+  const pre = /^[A-Za-z0-9_]/.test(raw) ? "(?<![A-Za-z0-9_])" : "";
+  const post = /[A-Za-z0-9_]$/.test(raw) ? "(?![A-Za-z0-9_])" : "";
+  return new RegExp(`${pre}${raw.replace(RE_META, "\\$&")}${post}`).test(body);
+}
+
+// opts.baseDir: resolve relative code_ref paths against this directory rather
+// than the caller's cwd. Callers know the project root; cwd is whatever terminal
+// the operator happened to be in, and a cwd mismatch would report every
+// repo-relative code_ref as missing.
+export function codeRefIssues(nodes, fsImpl = nodeFs, opts = {}) {
   const hard = [];
   const soft = [];
+  const baseDir = opts.baseDir || null;
+  const resolve = (p) => (baseDir && !path.isAbsolute(p) ? path.join(baseDir, p) : p);
   for (const n of nodes) {
     for (const ref of n.code_refs || []) {
       const [p, sym] = String(ref).split("#");
-      if (!fsImpl.existsSync(p)) { hard.push(`code_ref path missing: ${ref} (in ${n.id})`); continue; }
+      const target = resolve(p);
+      if (!fsImpl.existsSync(target)) { hard.push(`code_ref path missing: ${ref} (in ${n.id})`); continue; }
       if (sym) {
-        const body = fsImpl.readFileSync(p, "utf-8");
-        if (!body.includes(sym)) soft.push(`code_ref symbol drifted: ${ref} (in ${n.id})`);
+        const body = fsImpl.readFileSync(target, "utf-8");
+        if (!symbolPresent(body, sym)) soft.push(`code_ref symbol drifted: ${ref} (in ${n.id})`);
       }
     }
   }
@@ -56,7 +93,7 @@ export function main() {
     if (nodeFs.existsSync(s.path)) currentHashes[s.path] = hashFile(s.path);
   }
   const stale = staleSources(manifest, currentHashes);
-  const code = codeRefIssues(nodes);
+  const code = codeRefIssues(nodes, nodeFs, { baseDir: vault.projectDir });
   for (const s of stale) process.stderr.write(`[stale source] ${s.path} -> nodes: ${s.nodes.join(", ")}\n`);
   for (const h of code.hard) process.stderr.write(`[HARD] ${h}\n`);
   for (const w of code.soft) process.stderr.write(`[soft] ${w}\n`);

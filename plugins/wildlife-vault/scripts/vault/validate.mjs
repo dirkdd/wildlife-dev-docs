@@ -7,6 +7,12 @@ import { parseFrontmatter } from "./parse-frontmatter.mjs";
 import { buildVaultIndex, listVaultMarkdown } from "./vault-index.mjs";
 import { pass1Schema, pass2Structural, pass3Graph } from "./passes.mjs";
 import { coverageGaps, orphanedDomainIndexes, missingDomainIndexes } from "./index-drift.mjs";
+// The code_refs liveness probe. Importing status.mjs is safe: its CLI guard keys
+// off process.argv[1], so main() does not run on import (test: "importing
+// status.mjs does not run its main()").
+import { codeRefIssues } from "./status.mjs";
+import { danglingLinkReport } from "./link-scan.mjs";
+import { proseClaimReport } from "./prose-claims.mjs";
 
 // Pure: validate one file's content. Exported for tests.
 // ctx.knownIds represents OTHER nodes only; callers (the CLI) exclude the
@@ -81,10 +87,33 @@ function main() {
   if (!vault) process.exit(0); // no vault configured in this project -> no-op
 
   if (all) {
+    // COVERAGE ASSERTION, tier 1 — a lint that measured nothing must never
+    // report a pass. A typo in .vault.json's vaultRoot, or a renamed folder,
+    // silently turns every gate below into a no-op that certifies the vault.
+    // --all only: a single-file write must never be blocked by this.
+    if (!fs.existsSync(vault.vaultRoot) || !fs.statSync(vault.vaultRoot).isDirectory()) {
+      process.stderr.write(
+        `[HARD] vault root not found: ${vault.vaultRootRel} `
+        + `(check vaultRoot in docs/vault/.vault.json)\n`);
+      process.exit(1);
+    }
+
     const { byId, nodes: rawNodes } = buildVaultIndex(vault.vaultRoot);
+    const files = listVaultMarkdown(vault.vaultRoot);
+
+    // COVERAGE ASSERTION, tier 2 — self-arming on the artifact's own presence.
+    // A brand-new vault legitimately has zero files; a vault with files but zero
+    // parseable nodes measured nothing, whatever the per-file loop goes on to say.
+    if (files.length && rawNodes.length === 0) {
+      process.stderr.write(
+        `[HARD] ${files.length} markdown files under ${vault.vaultRootRel} but 0 parsed nodes `
+        + `— the lint measured nothing\n`);
+      process.exit(1);
+    }
+
     let hardCount = 0;
     let softCount = 0;
-    for (const filePath of listVaultMarkdown(vault.vaultRoot)) {
+    for (const filePath of files) {
       const content = fs.readFileSync(filePath, "utf-8");
       // exclude self from the known-id set so duplicate-id only fires on real dupes
       const knownIds = new Set([...byId.keys()].filter((id) => path.resolve(byId.get(id)) !== path.resolve(filePath)));
@@ -119,7 +148,36 @@ function main() {
       process.stderr.write(`[HARD] index-drift\n  - ${driftHard.join("\n  - ")}\n`);
     }
 
-    process.stderr.write(`vault:lint complete — ${hardCount} hard, ${softCount} soft\n`);
+    // code_refs liveness, as SOFT warnings. status.mjs treats a missing path as
+    // hard because /vault-status is a deliberate audit; in lint a code path
+    // deleted in the same commit as the doc update must not block vault writes.
+    // --all only — a filesystem probe over every node's code_refs is the wrong
+    // budget for a per-write hook, and a missing path must never deny a write.
+    const refs = codeRefIssues(nodes, fs, { baseDir: vault.projectDir });
+    const refSoft = [...refs.hard, ...refs.soft];
+    if (refSoft.length) {
+      softCount += refSoft.length;
+      process.stderr.write(`[soft] code_refs\n  - ${refSoft.join("\n  - ")}\n`);
+    }
+
+    // Soft, --all only: links whose target no longer resolves, and prose claims
+    // the filesystem contradicts. Neither runs in the hook path -- attribution
+    // is heuristic, and a hard rule on prose is the one that gets the whole
+    // gate switched off. Reachability from HERE is asserted in e2e-scripts.
+    for (const [label, lines] of [
+      ["dangling-wikilinks", danglingLinkReport(projectDir, vault)],
+      ["prose-claims", proseClaimReport(projectDir, vault)],
+    ]) {
+      if (lines.length) {
+        softCount += lines.length;
+        process.stderr.write(`[soft] ${label}\n  - ${lines.join("\n  - ")}\n`);
+      }
+    }
+
+    // Report the denominator, so a vacuous run can never read as a clean one.
+    process.stderr.write(
+      `vault:lint complete — ${hardCount} hard, ${softCount} soft `
+      + `(${rawNodes.length} nodes, ${files.length} files)\n`);
     process.exit(hardCount ? 1 : 0);
   }
 

@@ -221,3 +221,145 @@ test("learnings export no-ops (prints nothing) when no vault", () => {
   assert.equal(r.code, 0);
   assert.equal(r.out.trim(), "");
 });
+
+// --- coverage assertion: lint must never report a green pass over nothing ---
+
+test("lint hard-fails when the configured vault root does not exist", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-badroot-"));
+  fs.mkdirSync(path.join(dir, "docs", "vault"), { recursive: true });
+  // typo'd vaultRoot: the folder is never created
+  fs.writeFileSync(path.join(dir, "docs", "vault", ".vault.json"),
+    JSON.stringify({ vaultRoot: "docs/vault/Knowlege", vaultName: "Knowledge", domains: [] }));
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 1, `a nonexistent vault root must not lint green:\n${lint.out}`);
+  assert.match(lint.out, /vault root not found/);
+  assert.match(lint.out, /docs\/vault\/Knowlege/);
+});
+
+test("the vault-root check is --all only: hook mode still no-ops on a bad root", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-badroot-hook-"));
+  fs.mkdirSync(path.join(dir, "docs", "vault"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "docs", "vault", ".vault.json"),
+    JSON.stringify({ vaultRoot: "docs/vault/Knowlege", vaultName: "Knowledge", domains: [] }));
+  const hook = run("validate.mjs", dir, ["--mode=post", `--file=${path.join(dir, "src", "app.ts")}`]);
+  assert.equal(hook.code, 0, `a write outside the vault must never be blocked:\n${hook.out}`);
+});
+
+test("lint hard-fails when markdown is present but nothing parsed as a node", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-unparsed-"));
+  const vroot = path.join(dir, "docs", "vault", "Knowledge");
+  fs.mkdirSync(path.join(vroot, "concepts"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "docs", "vault", ".vault.json"),
+    JSON.stringify({ vaultRoot: "docs/vault/Knowledge", vaultName: "Knowledge", domains: [] }));
+  // markdown with no frontmatter fence at all -> parse fails -> zero nodes
+  fs.writeFileSync(path.join(vroot, "concepts", "notes.md"), "# just prose, no frontmatter\n");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 1, `files present but zero nodes must not lint green:\n${lint.out}`);
+  assert.match(lint.out, /measured nothing/);
+});
+
+test("an empty vault (zero markdown files) is still a legitimate clean run", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-empty-"));
+  fs.mkdirSync(path.join(dir, "docs", "vault", "Knowledge"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "docs", "vault", ".vault.json"),
+    JSON.stringify({ vaultRoot: "docs/vault/Knowledge", vaultName: "Knowledge", domains: [] }));
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 0, `a brand-new empty vault must not hard-fail:\n${lint.out}`);
+});
+
+test("lint prints the denominator it measured, not just the counts", () => {
+  const dir = freshProjectWithVault();
+  assert.equal(run("index.mjs", dir).code, 0, "map should exit 0");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 0, lint.out);
+  assert.match(lint.out, /0 hard, 0 soft \(5 nodes, 5 files\)/);
+});
+
+// --- code_ref probe, absorbed into lint as soft warnings ---
+
+function writeConceptWithCodeRefs(dir, id, refs) {
+  fs.writeFileSync(
+    path.join(dir, "docs", "vault", "Knowledge", "concepts", `${id}.md`),
+    [
+      "---",
+      `id: ${id}`,
+      `title: ${id}`,
+      "type: concept",
+      "doc_class: knowledge",
+      "summary: A node carrying code_refs so the liveness probe has something to resolve.",
+      "status: draft",
+      "provenance: inferred",
+      'tags: ["area/meta"]',
+      "updated: 2026-05-30",
+      `code_refs: [${refs.map((r) => `"${r}"`).join(", ")}]`,
+      "---",
+      `# ${id}`,
+      "",
+      "Body.",
+      "",
+    ].join("\n")
+  );
+}
+
+test("lint reports a dead code_ref path as SOFT and still exits 0", () => {
+  const dir = freshProjectWithVault();
+  writeConceptWithCodeRefs(dir, "c-dead-ref", ["src/does/not/exist.ts"]);
+  assert.equal(run("index.mjs", dir).code, 0, "map should exit 0");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 0, `a missing code_ref path must never hard-block:\n${lint.out}`);
+  assert.match(lint.out, /code_ref path missing: src\/does\/not\/exist\.ts/);
+  assert.match(lint.out, /0 hard, 1 soft/);
+});
+
+test("lint resolves code_ref paths against the project dir, not the caller's cwd", () => {
+  const dir = freshProjectWithVault();
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "real.ts"), "export function doThing() { return 1; }\n");
+  writeConceptWithCodeRefs(dir, "c-live-ref", ["src/real.ts#doThing"]);
+  assert.equal(run("index.mjs", dir).code, 0, "map should exit 0");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 0, lint.out);
+  assert.match(lint.out, /0 hard, 0 soft/);
+});
+
+test("lint resolves a dotted Class.method code_ref part-wise", () => {
+  const dir = freshProjectWithVault();
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "client.py"),
+    "class MCPClient:\n    async def connect(self):\n        return None\n");
+  writeConceptWithCodeRefs(dir, "c-dotted-ref", ["src/client.py#MCPClient.connect"]);
+  assert.equal(run("index.mjs", dir).code, 0, "map should exit 0");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.equal(lint.code, 0, lint.out);
+  assert.match(lint.out, /0 hard, 0 soft/);
+});
+
+// REACHABILITY. A pass can be fully implemented, unit-tested and green while
+// being wired into NOTHING -- which is the exact defect class 0.2.0 exists to
+// close, so it must not be the shape of 0.2.0's own release. These two assert
+// the passes are reachable THROUGH the CLI, not merely importable: they failed
+// (0 soft, no labels) when link-scan.mjs and prose-claims.mjs were complete and
+// their own 40+ unit tests passed.
+test("lint --all reaches the dangling-wikilink audit", () => {
+  const dir = freshProjectWithVault();
+  fs.writeFileSync(path.join(dir, "docs", "vault", "Knowledge", "concepts", "reach-a.md"),
+    "---\nid: reach-a\ntitle: reach-a\ntype: concept\ndoc_class: knowledge\nsummary: s\n"
+    + "status: draft\nprovenance: inferred\ntags: [domain/x]\nupdated: 2026-08-16\n---\n\n"
+    + "This cites [[no-such-node-anywhere]].\n");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.match(lint.out, /dangling-wikilinks/, `pass not reached:\n${lint.out}`);
+  assert.match(lint.out, /no-such-node-anywhere/);
+});
+
+test("lint --all reaches the prose-claim probe", () => {
+  const dir = freshProjectWithVault();
+  fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "scripts", "real.mjs"), "// this very much exists\n");
+  fs.writeFileSync(path.join(dir, "docs", "vault", "Knowledge", "concepts", "reach-b.md"),
+    "---\nid: reach-b\ntitle: reach-b\ntype: concept\ndoc_class: knowledge\nsummary: s\n"
+    + "status: draft\nprovenance: inferred\ntags: [domain/x]\nupdated: 2026-08-16\n---\n\n"
+    + "The loader `scripts/real.mjs` does not exist yet.\n");
+  const lint = run("validate.mjs", dir, ["--all"]);
+  assert.match(lint.out, /prose-claims/, `pass not reached:\n${lint.out}`);
+  assert.match(lint.out, /scripts\/real\.mjs/);
+});

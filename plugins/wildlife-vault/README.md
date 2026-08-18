@@ -32,7 +32,8 @@ Restart Claude Code so the SessionStart hook and `vault-*` skills load.
 ## Documentation
 
 - [`docs/STANDARD.md`](docs/STANDARD.md) — the full vault standard: node types, the frontmatter contract, relations, the index system, and enforcement.
-- [`docs/seed-from-prd.md`](docs/seed-from-prd.md) — how to bootstrap a vault from a PRD or design brief.
+- [`docs/seed-from-prd.md`](docs/seed-from-prd.md) — how to bootstrap a vault from a PRD or design brief, including the parallel-seeding protocol.
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — what changed in each release.
 
 ## Requirements
 

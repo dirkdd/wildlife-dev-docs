@@ -11,4 +11,16 @@ For each candidate, show the surrounding sentence for context and ask whether to
 
 Do not insert links in bulk without per-candidate confirmation. The scan is non-destructive; nothing changes until the user approves each insertion.
 
+## The other half: links that point nowhere
+
+The scan above finds text that should be a link. The reverse audit finds links that resolve to nothing:
+
+```
+node "${CLAUDE_PLUGIN_ROOT}/scripts/vault/link-scan.mjs" --dangling --project-dir="${CLAUDE_PROJECT_DIR}"
+```
+
+It reports each unresolved `[[target]]` once, grouped by target, with the reference count, the files it appears in, and a near-miss suggestion when one exists. Links are written wherever docs are written, not only inside the vault, so point the audit at the whole documentation tree: add `linkRoots` (paths, relative to the repo root) to `docs/vault/.vault.json`. Left unset it scans the vault root only, so an existing install sees no change until it opts in. Add `linkIgnorePrefixes` for link families that are deliberately external.
+
+Adjudicate by target, not by occurrence: one alias added to the intended node can fix ten references at once. A target with a near-miss suggestion is usually a typo; a target with many references and no near miss is usually a node nobody wrote yet.
+
 After all insertions, run `/vault-lint` to confirm no malformed relations were introduced.

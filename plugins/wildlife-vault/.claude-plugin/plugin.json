@@ -1,6 +1,6 @@
 {
   "name": "wildlife-vault",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agent-maintained, Obsidian-compatible knowledge vault for a code project. Typed, validated Markdown nodes; enforcement hooks; generated three-tier indexes; zero runtime dependencies.",
   "author": {
     "name": "Wildlife AI",

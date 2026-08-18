@@ -53,7 +53,8 @@ export const CATEGORY_DIRS = {
   guide: "guides",
   reference: "_meta",
   moc: "_meta",
-  learning: "_meta",
+  // vault-learn writes learning nodes to `_meta/learnings/`, not `_meta/`.
+  learning: "_meta/learnings",
 };
 
 // Stable ordering for generated indexes; "other" absorbs unregistered types.

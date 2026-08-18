@@ -44,6 +44,8 @@ export function renderDomainCoverage(domain, allNodes) {
   return out.join("\n").trim() || "_No nodes in this domain yet._";
 }
 
+// Every entry in TYPES needs a role here AND a CATEGORY_DIRS folder, or the
+// router row renders `undefined`. Guarded by test/learning-type.test.mjs.
 const TYPE_ROLE = {
   concept: "domain or technical concept",
   module: "a code surface or feature area",
@@ -55,6 +57,7 @@ const TYPE_ROLE = {
   guide: "a how-to or explanation",
   reference: "a pointer or schema doc",
   moc: "a map of content (index)",
+  learning: "a generalizable insight captured to evolve the plugin",
 };
 
 export function renderRouterCatalog(nodes, subIndexIds) {

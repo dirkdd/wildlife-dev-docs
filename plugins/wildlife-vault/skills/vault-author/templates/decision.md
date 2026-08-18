@@ -34,7 +34,9 @@ rel_related: []
 
 ## Decision Outcome
 
-<!-- Required. State the chosen option and why it was selected over the alternatives. -->
+<!-- Required. State the chosen option and why it was selected over the alternatives.
+     If it is accepted but NOT YET BUILT, say that in the first line — this record is read as a
+     description of the running system, and a planner will scope on top of a lane that does not exist. -->
 
 Chosen: **Option A**, because PLACEHOLDER.
 
@@ -50,7 +52,9 @@ Chosen: **Option A**, because PLACEHOLDER.
 
 ### Confirmation
 
-<!-- Optional. How will compliance with this decision be verified over time? -->
+<!-- Optional. How will compliance with this decision be verified over time?
+     If this decision implies work that is not done, name the dated row on the team's planning
+     artifact that carries it — this record cannot make anything come due. -->
 
 ## Pros and Cons of the Options
 

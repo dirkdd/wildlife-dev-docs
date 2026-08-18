@@ -93,6 +93,16 @@ The validator (the plugin's `scripts/vault/validate.mjs`) runs four gates: schem
 
 Hard violations block; soft warnings inform. The validator fails safe: if it crashes, it exits 0 and lets the write through.
 
+### Staleness: the threshold and the cohort
+
+`updated` older than `STALE_AFTER_DAYS` (120) is a soft warning. Know what it cannot catch. An absolute threshold only fires on a node nobody touched for four months, and the nodes that rot hardest are not the ones nobody touched — they are the ones seeded together in a project's first week, describing a scaffold that has since been rebuilt three times. Measured on a real 152-node vault: zero nodes over the threshold, oldest node 45 days, and a 16-node first-week cohort describing a shape that no longer existed. The gate could not fire, and the rot was in the cohort it could not see. Nodes that get edited are the accurate ones, so the threshold is structurally aimed at the wrong stratum.
+
+The instrument that does aim at it is a **cohort**: sort every node by `updated`, take the oldest decile (floor of 5 nodes, and skip the report entirely on a vault smaller than twice that floor — a 5-node vault would report itself), and treat that slice as the re-verification queue. Not a per-node warning: on a 152-node vault that is 16 permanent soft lines on every lint, forever, for nodes that are not individually known to be wrong — the decorative warning that gets the whole gate switched off. It belongs in `/vault-status`, the command an operator runs deliberately, as one block of text that never touches an exit code.
+
+Not yet mechanised: no code computes this cohort today, so run it by eye — sort by `updated`, take the oldest tenth, re-read those nodes against the code — until `stalestCohort` lands in `scripts/vault/status.mjs`.
+
+Keep the 120-day threshold either way. It costs nothing and it protects a vault that eventually runs long; it is simply not the whole answer, because a coherent cohort seeded on one day sits far inside the threshold and stays there.
+
 ## 7. Authoring workflow
 
 1. Use `/vault-new <type> "<title>"` to scaffold a node, or the `vault-author` skill to author one with full frontmatter.
@@ -107,7 +117,7 @@ When you learn something generalizable about *how* to build or document (not pro
 
 - **Typed over freeform** — every node has a type and obeys a contract.
 - **Generated indexes** — navigation scales without manual upkeep.
-- **Provenance tracked** — every claim is `verified`, `extracted`, `inferred`, or `ambiguous`.
+- **Provenance tracked** — every claim is `verified`, `extracted`, `inferred`, or `ambiguous`. `verified` means someone opened the code and saw it, not that a test was green.
 - **Enforced, not suggested** — hooks make the contract non-optional.
 - **Compounding** — every task ends with a vault update; an unindexed fact is invisible next session.
 - **Self-improving** — the tooling learns from each deployment via the capture-and-harvest loop.
