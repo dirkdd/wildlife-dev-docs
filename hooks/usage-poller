@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Singleton poller. Refreshes the usage reading and writes state.json for the
+# gate to read.
+#
+# The probe is what refreshes ~/.claude.json. That cache is not self-refreshing:
+# it was measured 5.7 hours stale while a session ran continuously. So the
+# poller runs the probe, then reads the numbers back out of the cache the probe
+# just wrote. Reading the cache is more reliable than parsing the human readable
+# probe output, which carries a localised date and a timezone name.
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB="$HOOK_DIR/../lib"
+
+if [ -z "${POLLER_LIB_ONLY:-}" ]; then
+  . "$LIB/config.sh"   2>/dev/null || exit 0
+  . "$LIB/timeconv.sh" 2>/dev/null || exit 0
+  . "$LIB/state.sh"    2>/dev/null || exit 0
+  . "$LIB/escape.sh"   2>/dev/null || exit 0
+fi
+
+: "${CLAUDE_JSON:=$HOME/.claude.json}"
+
+# Pulls the percent and the ISO reset out of ~/.claude.json. Scoped to the
+# five_hour block so a seven_day block cannot be picked up by accident.
+read_cache() {
+  local f="${1:-$CLAUDE_JSON}"
+  [ -r "$f" ] || { printf '\n'; return 0; }
+
+  local block
+  block=$(tr -d '\n' < "$f" 2>/dev/null | sed -n 's/.*"five_hour"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p' | head -1)
+  [ -n "$block" ] || { printf '\n'; return 0; }
+
+  local pct iso
+  pct=$(printf '%s' "$block" | sed -n 's/.*"utilization"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+  iso=$(printf '%s' "$block" | sed -n 's/.*"resets_at"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+
+  if [ -z "$pct" ] || [ -z "$iso" ]; then printf '\n'; return 0; fi
+  printf '%s %s\n' "$pct" "$iso"
+  return 0
+}
+
+# Poll harder as the window fills.
+interval_for() {
+  local pct="$1"
+  case "$pct" in ''|*[!0-9]*) printf '300\n'; return 0 ;; esac
+  if [ "$pct" -ge 90 ]; then printf '120\n'
+  elif [ "$pct" -ge 70 ]; then printf '300\n'
+  else printf '900\n'
+  fi
+  return 0
+}
+
+# Atomic so the gate never reads a half-written file.
+write_state_file() {
+  local pct="$1" resets="$2"
+  local tmp="$STATE_FILE.tmp"
+  mkdir -p "$GUARD_DIR" 2>/dev/null
+  printf '{"used_percentage":%s,"resets_at":%s,"ts":%s}\n' "$pct" "$resets" "$(date +%s)" > "$tmp" 2>/dev/null || return 0
+  mv -f "$tmp" "$STATE_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# MSYS_NO_PATHCONV stops Git Bash rewriting the /usage argument into a Windows
+# path, which makes the CLI treat it as an ordinary prompt.
+run_probe() {
+  MSYS_NO_PATHCONV=1 claude -p "/usage" >/dev/null 2>&1
+  return 0
+}
+
+poll_once() {
+  run_probe
+  local cache pct iso epoch
+  cache=$(read_cache)
+  [ -n "$cache" ] || { guard_log "poll: cache unreadable"; printf '\n'; return 0; }
+  pct=$(printf '%s' "$cache" | cut -d' ' -f1)
+  iso=$(printf '%s' "$cache" | cut -d' ' -f2)
+  epoch=$(iso_to_epoch "$iso")
+  [ -n "$epoch" ] || { guard_log "poll: could not convert $iso"; printf '\n'; return 0; }
+  write_state_file "$pct" "$epoch"
+  guard_log "poll: pct=$pct resets_at=$epoch"
+  printf '%s\n' "$pct"
+  return 0
+}
+
+# Lockfile singleton. mkdir is atomic on every filesystem this runs on.
+main_loop() {
+  mkdir -p "$GUARD_DIR" 2>/dev/null
+  if ! mkdir "$LOCK_FILE" 2>/dev/null; then
+    exit 0
+  fi
+  trap 'rmdir "$LOCK_FILE" 2>/dev/null' EXIT INT TERM
+
+  while :; do
+    if guard_disabled; then sleep 60; continue; fi
+    local pct
+    pct=$(poll_once)
+    sleep "$(interval_for "$pct")"
+  done
+}
+
+if [ -z "${POLLER_LIB_ONLY:-}" ]; then
+  main_loop &
+fi
