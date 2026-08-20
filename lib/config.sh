@@ -26,6 +26,13 @@
 # it today.
 case "$HOOK_TIMEOUT_SECONDS" in ''|*[!0-9]*|0?*) HOOK_TIMEOUT_SECONDS=19800 ;; esac
 
+# How long the poller waits for a single `claude -p "/usage"` probe before
+# killing it. Screened the same way as HOOK_TIMEOUT_SECONDS above: it feeds a
+# bash arithmetic comparison, so a leading zero (octal) or any non-digit has
+# to be rejected, not just an empty value.
+: "${PROBE_TIMEOUT:=60}"
+case "$PROBE_TIMEOUT" in ''|*[!0-9]*|0?*) PROBE_TIMEOUT=60 ;; esac
+
 guard_log() {
   # Best effort. A guard that cannot log still has to let work through.
   mkdir -p "$GUARD_DIR" 2>/dev/null

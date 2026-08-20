@@ -62,8 +62,26 @@ write_state_file() {
 
 # MSYS_NO_PATHCONV stops Git Bash rewriting the /usage argument into a Windows
 # path, which makes the CLI treat it as an ordinary prompt.
+#
+# No external `timeout` command: it is absent on stock macOS and this project
+# takes no dependencies beyond bash and coreutils. So the probe is backgrounded
+# and watched by hand, one second at a time, up to PROBE_TIMEOUT, rather than
+# left to hang the loop forever on a stalled CLI.
 run_probe() {
-  MSYS_NO_PATHCONV=1 claude -p "/usage" >/dev/null 2>&1
+  MSYS_NO_PATHCONV=1 claude -p "/usage" >/dev/null 2>&1 &
+  local probe_pid=$!
+  local waited=0
+  while kill -0 "$probe_pid" 2>/dev/null; do
+    if [ "$waited" -ge "$PROBE_TIMEOUT" ]; then
+      kill -9 "$probe_pid" 2>/dev/null
+      guard_log "poll: probe timed out after ${PROBE_TIMEOUT}s"
+      wait "$probe_pid" 2>/dev/null
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$probe_pid" 2>/dev/null
   return 0
 }
 
@@ -82,13 +100,41 @@ poll_once() {
   return 0
 }
 
-# Lockfile singleton. mkdir is atomic on every filesystem this runs on.
+# mkdir is atomic on every filesystem this runs on, but a bare mkdir-as-lock
+# is never recovered if the owner dies without running its trap (SIGKILL,
+# power loss). So the lock directory carries a pid file, and a lock whose
+# owner is no longer alive is treated as stale and reclaimed.
+acquire_lock() {
+  if mkdir "$LOCK_FILE" 2>/dev/null; then
+    printf '%s\n' "$$" > "$LOCK_FILE/pid" 2>/dev/null
+    return 0
+  fi
+
+  local owner
+  owner=$(cat "$LOCK_FILE/pid" 2>/dev/null)
+  case "$owner" in ''|*[!0-9]*) owner="" ;; esac
+  if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+    return 1
+  fi
+
+  guard_log "poll: reclaiming stale lock from pid ${owner:-unknown}"
+  rm -rf "$LOCK_FILE" 2>/dev/null
+  if mkdir "$LOCK_FILE" 2>/dev/null; then
+    printf '%s\n' "$$" > "$LOCK_FILE/pid" 2>/dev/null
+    return 0
+  fi
+  return 1
+}
+
+# Lockfile singleton.
 main_loop() {
   mkdir -p "$GUARD_DIR" 2>/dev/null
-  if ! mkdir "$LOCK_FILE" 2>/dev/null; then
+  if ! acquire_lock; then
     exit 0
   fi
-  trap 'rmdir "$LOCK_FILE" 2>/dev/null' EXIT INT TERM
+  # The lock directory now holds a pid file, so it is never empty: rmdir
+  # would fail and leave the lock stuck. rm -rf is required.
+  trap 'rm -rf "$LOCK_FILE" 2>/dev/null' EXIT INT TERM
 
   while :; do
     if guard_disabled; then sleep 60; continue; fi

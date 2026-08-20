@@ -44,3 +44,35 @@ out=$(read_state "$STATE_FILE")
 assert_eq "$(printf '%s' "$out" | cut -d' ' -f1)" "46" "written state round-trips the percent"
 assert_eq "$(printf '%s' "$out" | cut -d' ' -f2)" "1787201399" "written state round-trips the reset"
 assert_eq "$([ -e "$STATE_FILE.tmp" ] && echo leftover || echo clean)" "clean" "atomic write leaves no temp file"
+
+# Lock acquisition: fresh, held, stale, and corrupt-pid cases.
+rm -rf "$LOCK_FILE"
+acquire_lock
+assert_eq "$?" "0" "acquire_lock succeeds against a fresh GUARD_DIR"
+assert_eq "$(cat "$LOCK_FILE/pid" 2>/dev/null)" "$$" "acquire_lock writes a pid file containing the current pid"
+
+acquire_lock
+assert_eq "$?" "1" "a second acquire_lock fails while the recorded pid is alive"
+
+rm -rf "$LOCK_FILE"; mkdir -p "$LOCK_FILE"
+# 4194304 is one past Linux's default pid_max (4194303) and out of range for
+# Windows/macOS pid spaces too, so it cannot be a live process here.
+printf '4194304\n' > "$LOCK_FILE/pid"
+acquire_lock
+assert_eq "$?" "0" "a stale lock (dead pid) is reclaimed"
+assert_eq "$(cat "$LOCK_FILE/pid" 2>/dev/null)" "$$" "reclaiming a stale lock rewrites the pid file to the current pid"
+
+rm -rf "$LOCK_FILE"; mkdir -p "$LOCK_FILE"
+printf 'not-a-pid\n' > "$LOCK_FILE/pid"
+acquire_lock
+assert_eq "$?" "0" "a lock with a garbage pid file is treated as stale and reclaimed"
+
+rm -rf "$LOCK_FILE"; mkdir -p "$LOCK_FILE"
+acquire_lock
+assert_eq "$?" "0" "a lock with a missing pid file is treated as stale and reclaimed"
+
+# The trap must use rm -rf, not rmdir, since the lock dir is never empty once
+# it holds a pid file; rmdir on a non-empty directory fails.
+rm -rf "$LOCK_FILE"; mkdir -p "$LOCK_FILE"; printf '%s\n' "$$" > "$LOCK_FILE/pid"
+rm -rf "$LOCK_FILE"
+assert_eq "$([ -e "$LOCK_FILE" ] && echo present || echo gone)" "gone" "rm -rf removes a lock directory that contains a pid file"
