@@ -55,3 +55,23 @@ assert_eq "$([ "$elapsed" -le 3 ] && echo fast || echo slow)" "fast" "DISABLE fi
 # Env var escape hatch.
 CLAUDE_USAGE_GUARD_OFF=1 out=$(payload Agent | CLAUDE_USAGE_GUARD_OFF=1 bash "$ROOT/hooks/usage-gate")
 assert_eq "$out" "" "env var escape hatch suppresses the deny"
+
+# tool_name extraction takes the FIRST (outermost) match, not a decoy nested
+# in tool_input.
+write_state 92 "$(( $(date +%s) + 3600 ))"
+decoy_bash='{"tool_name":"Bash","tool_input":{"tool_name":"Agent"}}'
+out=$(printf '%s' "$decoy_bash" | bash "$ROOT/hooks/usage-gate")
+assert_eq "$out" "" "a decoy tool_name inside tool_input does not trigger a false deny"
+
+decoy_agent='{"tool_name":"Agent","tool_input":{"tool_name":"Bash"}}'
+out=$(printf '%s' "$decoy_agent" | bash "$ROOT/hooks/usage-gate")
+assert_eq "$(printf '%s' "$out" | grep -c '"permissionDecision":"deny"')" "1" "a decoy tool_name inside tool_input does not bypass a real Agent spawn's deny"
+
+# A malformed HOOK_TIMEOUT_SECONDS (leading zero parses as octal in bash
+# arithmetic) must not crash the freeze-deadline computation.
+write_state 99 "$(( $(date +%s) - 5 ))"
+start=$(date +%s)
+out=$(payload Bash | HOOK_TIMEOUT_SECONDS=08000 bash "$ROOT/hooks/usage-gate"); code=$?
+elapsed=$(( $(date +%s) - start ))
+assert_eq "$code" "0" "malformed HOOK_TIMEOUT_SECONDS still exits 0"
+assert_eq "$out" "" "malformed HOOK_TIMEOUT_SECONDS still emits nothing on an already-past reset"

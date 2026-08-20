@@ -21,7 +21,12 @@ LIB="$HOOK_DIR/../lib"
 
 guard_disabled && exit 0
 
-TOOL=$(printf '%s' "$PAYLOAD" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+# The top-level tool_name, not any "tool_name" string nested inside
+# tool_input (e.g. a Write of a fixture payload). A greedy-.* sed pattern
+# binds to the LAST match on a single-line payload; grep -o returns matches
+# in document order, so the first line here is the first (outermost)
+# occurrence.
+TOOL=$(printf '%s' "$PAYLOAD" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
 
 STATE=$(read_state)
 [ "$STATE" = "UNKNOWN" ] && exit 0
