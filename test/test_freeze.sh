@@ -10,7 +10,7 @@ export RESET_BUFFER=0
 
 # A reset already in the past releases immediately.
 now=$(date +%s)
-start=$(date +%s)
+start=$now
 result=$(freeze_until $((now - 10)) $((now + 3600)))
 elapsed=$(( $(date +%s) - start ))
 assert_eq "$result" "RESET" "a past reset releases immediately"
@@ -18,7 +18,7 @@ assert_eq "$([ "$elapsed" -le 2 ] && echo fast || echo slow)" "fast" "past reset
 
 # A reset a couple of seconds out is waited for.
 now=$(date +%s)
-start=$(date +%s)
+start=$now
 result=$(freeze_until $((now + 2)) $((now + 3600)))
 elapsed=$(( $(date +%s) - start ))
 assert_eq "$result" "RESET" "a near reset is waited for then released"
@@ -26,7 +26,7 @@ assert_eq "$([ "$elapsed" -ge 2 ] && echo waited || echo early)" "waited" "it ac
 
 # The hard deadline wins over a distant reset.
 now=$(date +%s)
-start=$(date +%s)
+start=$now
 result=$(freeze_until $((now + 3600)) $((now + 2)))
 elapsed=$(( $(date +%s) - start ))
 assert_eq "$result" "DEADLINE" "the hard deadline releases before the reset"
@@ -34,9 +34,9 @@ assert_eq "$([ "$elapsed" -le 4 ] && echo bounded || echo overran)" "bounded" "d
 
 # The DISABLE file thaws a freeze within one increment.
 now=$(date +%s)
+start=$now
 ( sleep 2; touch "$DISABLE_FILE" ) &
 helper=$!
-start=$(date +%s)
 result=$(freeze_until $((now + 3600)) $((now + 3600)))
 elapsed=$(( $(date +%s) - start ))
 wait "$helper" 2>/dev/null
