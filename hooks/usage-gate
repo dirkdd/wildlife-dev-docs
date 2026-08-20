@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# PreToolUse gate. Reads the hook payload on stdin and decides whether the tool
+# call proceeds, is denied, or is held until the usage window resets.
+#
+# Exits 0 on every path. Claude Code treats a nonzero command-hook exit as a
+# non-blocking error, and a guard that errors on every tool call would be worse
+# than no guard at all.
+
+# Consume stdin first and unconditionally. Exiting without draining the pipe
+# makes the writer see a closed descriptor.
+PAYLOAD=$(cat 2>/dev/null)
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB="$HOOK_DIR/../lib"
+
+. "$LIB/config.sh"  2>/dev/null || exit 0
+. "$LIB/escape.sh"  2>/dev/null || exit 0
+. "$LIB/state.sh"   2>/dev/null || exit 0
+. "$LIB/decide.sh"  2>/dev/null || exit 0
+. "$LIB/freeze.sh"  2>/dev/null || exit 0
+
+guard_disabled && exit 0
+
+TOOL=$(printf '%s' "$PAYLOAD" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+
+STATE=$(read_state)
+[ "$STATE" = "UNKNOWN" ] && exit 0
+
+set -- $STATE
+PCT="$1"; RESETS="$2"; TS="$3"
+
+NOW=$(date +%s)
+ACTION=$(decide "$PCT" "$TOOL" "$NOW" "$TS")
+
+case "$ACTION" in
+  ALLOW)
+    exit 0
+    ;;
+  DENY_SPAWN)
+    guard_log "deny spawn tool=$TOOL pct=$PCT"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Usage guard: the 5-hour window is %s%% used. Stop starting new subagents and finish with the results you already have. Existing agents are unaffected."}}\n' "$PCT"
+    exit 0
+    ;;
+  FREEZE)
+    # Release two minutes before the hook timeout would fire, so an overrun
+    # leaks one call instead of silently disabling the freeze.
+    DEADLINE=$((NOW + HOOK_TIMEOUT_SECONDS - 120))
+    guard_log "freeze start tool=$TOOL pct=$PCT resets_at=$RESETS"
+    REASON=$(freeze_until "$RESETS" "$DEADLINE")
+    guard_log "freeze end reason=$REASON tool=$TOOL"
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac

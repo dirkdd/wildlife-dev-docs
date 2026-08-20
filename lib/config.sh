@@ -13,6 +13,10 @@
 : "${RESET_BUFFER:=60}"
 : "${SLEEP_INCREMENT:=20}"
 
+# Must match the "timeout" value in hooks/hooks.json. The gate releases 120
+# seconds before this so an overrun degrades to one leaked call.
+: "${HOOK_TIMEOUT_SECONDS:=19800}"
+
 guard_log() {
   # Best effort. A guard that cannot log still has to let work through.
   mkdir -p "$GUARD_DIR" 2>/dev/null
