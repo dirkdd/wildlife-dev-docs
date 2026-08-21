@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# End-to-end checks against real sessions. Uses a fabricated state file so no
+# real usage threshold has to be reached.
+#
+# Each check costs one real `claude -p` session. Run ONE check per invocation
+# via the numeric argument (1-4) and inspect its output before running the
+# next. A bare invocation (no argument) is a usage error, not a shortcut: it
+# prints usage and exits non-zero without starting any session. Running all
+# four back to back requires the explicit `all` argument, so it can never
+# happen by accident or muscle memory. Do not pipe this script's combined
+# output through a display filter (e.g. `sed -n '/== 2/,/== 3/p'`) expecting
+# it to run only part of the script -- a pipe filters what you SEE, it does
+# not stop the producer, and a backgrounded run in that shape can outlive
+# being told to stop (see README.md "Verified behavior" for the incident this
+# caused).
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+WORK="$ROOT/test/e2e/tmp"
+rm -rf "$WORK"; mkdir -p "$WORK"
+export GUARD_DIR="$WORK"
+export STATE_FILE="$WORK/state.json"
+sed "s|<ROOT>|$ROOT|g" "$ROOT/test/e2e/settings-e2e.json" > "$WORK/settings.json"
+
+# Every check below fabricates a FRESH state file (ts set to now), so the
+# gate should never see UNKNOWN/STALE state and never try to relaunch the
+# poller. But if a mistake in this harness DOES trip that path, it must not
+# cost real budget: point the gate's escape-hatch env var at a no-op stub for
+# the whole run instead of letting it exec the real usage-poller (which would
+# run a real `claude -p "/usage"` session).
+export USAGE_GUARD_TEST_POLLER="$ROOT/test/e2e/noop-poller"
+
+fabricate() { printf '{"used_percentage":%s,"resets_at":%s,"ts":%s}\n' "$1" "$2" "$(date +%s)" > "$STATE_FILE"; }
+
+check1() {
+  echo "== 1. below threshold: session completes normally =="
+  fabricate 10 "$(( $(date +%s) + 3600 ))"
+  start=$(date +%s)
+  printf 'Run this bash command and report only its output: echo alive' | \
+    GUARD_DIR="$WORK" STATE_FILE="$STATE_FILE" \
+    claude -p --settings "$WORK/settings.json" --allowedTools "Bash"
+  echo "elapsed=$(( $(date +%s) - start ))s (expect roughly 5 to 15)"
+}
+
+check2() {
+  echo "== 2. freeze then release: reset 90 seconds out =="
+  fabricate 99 "$(( $(date +%s) + 90 ))"
+  start=$(date +%s)
+  printf 'Run this bash command and report only its output: echo thawed' | \
+    GUARD_DIR="$WORK" STATE_FILE="$STATE_FILE" \
+    claude -p --settings "$WORK/settings.json" --allowedTools "Bash"
+  echo "elapsed=$(( $(date +%s) - start ))s (expect at least 90)"
+  echo "-- guard log --"; cat "$WORK/guard.log" 2>/dev/null
+}
+
+check3() {
+  echo "== 3. drain band: Agent spawn denied, Bash allowed =="
+  fabricate 92 "$(( $(date +%s) + 3600 ))"
+  printf 'Use your subagent-spawning tool to launch one general-purpose agent that replies OK. If you cannot, say exactly: SPAWN BLOCKED' | \
+    GUARD_DIR="$WORK" STATE_FILE="$STATE_FILE" \
+    claude -p --settings "$WORK/settings.json" --allowedTools "Bash" "Agent"
+  echo "-- guard log --"; cat "$WORK/guard.log" 2>/dev/null
+}
+
+check4() {
+  echo "== 4. DISABLE thaws a freeze =="
+  fabricate 99 "$(( $(date +%s) + 3600 ))"
+  ( sleep 25; touch "$WORK/DISABLE" ) &
+  start=$(date +%s)
+  printf 'Run this bash command and report only its output: echo escaped' | \
+    GUARD_DIR="$WORK" STATE_FILE="$STATE_FILE" DISABLE_FILE="$WORK/DISABLE" \
+    claude -p --settings "$WORK/settings.json" --allowedTools "Bash"
+  echo "elapsed=$(( $(date +%s) - start ))s (expect roughly 25 to 60, not 3600)"
+  rm -f "$WORK/DISABLE"
+}
+
+case "${1:-}" in
+  1) check1 ;;
+  2) check2 ;;
+  3) check3 ;;
+  4) check4 ;;
+  all) check1; check2; check3; check4 ;;
+  *)
+    echo "usage: run-e2e <1|2|3|4|all>" >&2
+    echo "  1-4  run one check (one real claude -p session)" >&2
+    echo "  all  run all four back to back (four real sessions -- explicit, not the default)" >&2
+    exit 1
+    ;;
+esac

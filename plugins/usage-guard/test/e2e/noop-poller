@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Harmless stand-in for hooks/usage-poller during e2e runs. Every check in
+# run-e2e fabricates a fresh state file (ts set to "now"), so the gate should
+# never actually decide it needs a poller relaunch. This stub exists as a
+# belt-and-braces backstop: if some path DOES trigger a relaunch, it costs
+# nothing instead of spawning a real `claude -p "/usage"` session and eating
+# budget. Do nothing and exit clean.
+exit 0

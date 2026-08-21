@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Freezes a session that has live subagents, and reports what survives.
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+WORK="$ROOT/test/e2e/tmp-fanout"
+rm -rf "$WORK"; mkdir -p "$WORK"
+export GUARD_DIR="$WORK"
+export STATE_FILE="$WORK/state.json"
+sed "s|<ROOT>|$ROOT|g" "$ROOT/test/e2e/settings-e2e.json" > "$WORK/settings.json"
+
+# Belt-and-braces: point the gate's escape hatch at a no-op poller stub for
+# the whole run, same reasoning as run-e2e -- fabricated state is always
+# fresh so the relaunch path should never fire, but if it does, it must not
+# cost real budget.
+export USAGE_GUARD_TEST_POLLER="$ROOT/test/e2e/noop-poller"
+
+# Start under the threshold so the fan-out is allowed to begin.
+printf '{"used_percentage":10,"resets_at":%s,"ts":%s}\n' "$(( $(date +%s) + 3600 ))" "$(date +%s)" > "$STATE_FILE"
+
+# Raise to a freeze 20 seconds in, while the agents are still working.
+( sleep 20
+  printf '{"used_percentage":99,"resets_at":%s,"ts":%s}\n' "$(( $(date +%s) + 120 ))" "$(date +%s)" > "$STATE_FILE"
+  echo "[harness] raised state to 99 at $(date +%s)" ) &
+
+start=$(date +%s)
+printf 'Launch three general-purpose agents in parallel. Each one should run: bash -c "sleep 45; echo done". Then report how many reported back.' | \
+  GUARD_DIR="$WORK" STATE_FILE="$STATE_FILE" \
+  claude -p --settings "$WORK/settings.json" --allowedTools "Bash" "Agent"
+echo "elapsed=$(( $(date +%s) - start ))s"
+echo "-- sleeping hook processes seen during the run are counted below --"
+echo "-- guard log --"; cat "$WORK/guard.log" 2>/dev/null

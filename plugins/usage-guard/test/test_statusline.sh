@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+. "$(dirname "$0")/assert.sh"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export GUARD_DIR="$(dirname "$0")/tmp/statusline"
+rm -rf "$GUARD_DIR"; mkdir -p "$GUARD_DIR"
+export STATE_FILE="$GUARD_DIR/state.json"
+. "$ROOT/lib/config.sh"
+. "$ROOT/lib/state.sh"
+
+payload='{"session_id":"x","rate_limits":{"five_hour":{"used_percentage":46,"resets_at":1787201399}}}'
+printf '%s' "$payload" | bash "$ROOT/hooks/usage-statusline" > /dev/null
+# used_percentage in the payload is already a percentage (0-100), not a
+# 0-to-1 fraction. Pinning it to 46 here, rather than a round number like 50,
+# catches a stray *100 immediately: that bug would write 4600, not 46.
+assert_eq "$(read_state "$STATE_FILE" | cut -d' ' -f1)" "46" "shim writes the percent unscaled, no stray *100"
+assert_eq "$(read_state "$STATE_FILE" | cut -d' ' -f2)" "1787201399" "shim writes the reset"
+
+rm -f "$STATE_FILE"
+printf '%s' '{"session_id":"x"}' | bash "$ROOT/hooks/usage-statusline" > /dev/null
+assert_eq "$(read_state "$STATE_FILE")" "UNKNOWN" "absent rate_limits writes nothing"
+
+printf '%s' 'not json' | bash "$ROOT/hooks/usage-statusline" > /dev/null
+assert_exit 0 "shim exits 0 on garbage" bash -c "printf 'not json' | bash '$ROOT/hooks/usage-statusline'"
+
+assert_eq "$(printf '%s' "$payload" | bash "$ROOT/hooks/usage-statusline" | wc -l | tr -d ' ')" "1" "shim always prints exactly one line"
+
+# Fix round 1: the payload comes from Claude Code and carries fields we do
+# not control (cwd, session_id, model, ...). A decoy "five_hour" block placed
+# after the real one, e.g. tucked inside an unrelated field alongside cwd,
+# must not win. A greedy-.* sed pattern would bind to this LAST match, the
+# same bug class already fixed once for tool_name in hooks/usage-gate. The
+# decoy carries a different, unmistakable number (99, resets_at 1111111111)
+# so a wrong match cannot pass by coincidence.
+rm -f "$STATE_FILE"
+decoy_payload='{"session_id":"x","rate_limits":{"five_hour":{"used_percentage":46,"resets_at":1787201399}},"cwd":"/Users/x/projects/five_hour","decoy_hint":{"five_hour":{"used_percentage":99,"resets_at":1111111111}}}'
+printf '%s' "$decoy_payload" | bash "$ROOT/hooks/usage-statusline" > /dev/null
+assert_eq "$(read_state "$STATE_FILE" | cut -d' ' -f1)" "46" "shim reads the real rate_limits block, not a later decoy five_hour"
+assert_eq "$(read_state "$STATE_FILE" | cut -d' ' -f2)" "1787201399" "shim reads the real resets_at, not the decoy's"

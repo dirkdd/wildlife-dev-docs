@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# Singleton poller. Refreshes the usage reading and writes state.json for the
+# gate to read.
+#
+# The probe is what refreshes ~/.claude.json. That cache is not self-refreshing:
+# it was measured 5.7 hours stale while a session ran continuously. So the
+# poller runs the probe, then reads the numbers back out of the cache the probe
+# just wrote. Reading the cache is more reliable than parsing the human readable
+# probe output, which carries a localised date and a timezone name.
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB="$HOOK_DIR/../lib"
+
+if [ -z "${POLLER_LIB_ONLY:-}" ]; then
+  . "$LIB/config.sh"   2>/dev/null || exit 0
+  . "$LIB/timeconv.sh" 2>/dev/null || exit 0
+  . "$LIB/state.sh"    2>/dev/null || exit 0
+  . "$LIB/escape.sh"   2>/dev/null || exit 0
+fi
+
+: "${CLAUDE_JSON:=$HOME/.claude.json}"
+
+# Pulls the percent and the ISO reset out of ~/.claude.json. Scoped to the
+# five_hour block so a seven_day block cannot be picked up by accident.
+read_cache() {
+  local f="${1:-$CLAUDE_JSON}"
+  [ -r "$f" ] || { printf '\n'; return 0; }
+
+  local block
+  block=$(tr -d '\n' < "$f" 2>/dev/null | sed -n 's/.*"five_hour"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p' | head -1)
+  [ -n "$block" ] || { printf '\n'; return 0; }
+
+  local pct iso
+  pct=$(printf '%s' "$block" | sed -n 's/.*"utilization"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+  iso=$(printf '%s' "$block" | sed -n 's/.*"resets_at"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+
+  if [ -z "$pct" ] || [ -z "$iso" ]; then printf '\n'; return 0; fi
+  printf '%s %s\n' "$pct" "$iso"
+  return 0
+}
+
+# Poll harder as the window fills.
+interval_for() {
+  local pct="$1"
+  case "$pct" in ''|*[!0-9]*) printf '300\n'; return 0 ;; esac
+  if [ "$pct" -ge 90 ]; then printf '120\n'
+  elif [ "$pct" -ge 70 ]; then printf '300\n'
+  else printf '900\n'
+  fi
+  return 0
+}
+
+# Atomic so the gate never reads a half-written file.
+write_state_file() {
+  local pct="$1" resets="$2"
+  local tmp="$STATE_FILE.tmp"
+  mkdir -p "$GUARD_DIR" 2>/dev/null
+  printf '{"used_percentage":%s,"resets_at":%s,"ts":%s}\n' "$pct" "$resets" "$(date +%s)" > "$tmp" 2>/dev/null || return 0
+  mv -f "$tmp" "$STATE_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# MSYS_NO_PATHCONV stops Git Bash rewriting the /usage argument into a Windows
+# path, which makes the CLI treat it as an ordinary prompt.
+#
+# No external `timeout` command: it is absent on stock macOS and this project
+# takes no dependencies beyond bash and coreutils. So the probe is backgrounded
+# and watched by hand, one second at a time, up to PROBE_TIMEOUT, rather than
+# left to hang the loop forever on a stalled CLI.
+run_probe() {
+  MSYS_NO_PATHCONV=1 claude -p "/usage" >/dev/null 2>&1 &
+  local probe_pid=$!
+  local waited=0
+  while kill -0 "$probe_pid" 2>/dev/null; do
+    if [ "$waited" -ge "$PROBE_TIMEOUT" ]; then
+      kill -9 "$probe_pid" 2>/dev/null
+      guard_log "poll: probe timed out after ${PROBE_TIMEOUT}s"
+      wait "$probe_pid" 2>/dev/null
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$probe_pid" 2>/dev/null
+  return 0
+}
+
+poll_once() {
+  run_probe
+  local cache pct iso epoch
+  cache=$(read_cache)
+  [ -n "$cache" ] || { guard_log "poll: cache unreadable"; printf '\n'; return 0; }
+  pct=$(printf '%s' "$cache" | cut -d' ' -f1)
+  iso=$(printf '%s' "$cache" | cut -d' ' -f2)
+  epoch=$(iso_to_epoch "$iso")
+  [ -n "$epoch" ] || { guard_log "poll: could not convert $iso"; printf '\n'; return 0; }
+  write_state_file "$pct" "$epoch"
+  guard_log "poll: pct=$pct resets_at=$epoch"
+  printf '%s\n' "$pct"
+  return 0
+}
+
+# mkdir is atomic on every filesystem this runs on, but a bare mkdir-as-lock
+# is never recovered if the owner dies without running its trap (SIGKILL,
+# power loss). So the lock directory carries a pid file, and a lock whose
+# owner is no longer alive is treated as stale and reclaimed.
+#
+# Reclaiming is NOT race-free: read-owner, decide-stale, clear, mkdir is
+# several steps, and two racers can both decide the same owner is dead. Using
+# `mv` (atomic rename) to clear the stale directory, instead of `rm -rf`,
+# means a racer can only ever clobber whatever is CURRENTLY at $LOCK_FILE
+# with a single atomic op, but that does not make the sequence safe: mv does
+# not check that the directory it moves is still the one this racer
+# inspected, so a second racer's mv can just as easily rename aside a first
+# racer's brand new live lock. So after a reclaim, this function never
+# assumes it now owns the lock - it loops back and retries a plain mkdir
+# from the top, same as a first-time acquire. That mkdir either wins outright
+# (nobody else got there first) or fails because a live owner (possibly a
+# racer that reclaimed a moment earlier) is now present, in which case this
+# call correctly reports the lock as taken. This narrows the reclaim race
+# window; it does not close it. Closing it is main_loop's job: see own_lock,
+# which makes any double-acquire self-correct within one iteration instead
+# of running two pollers indefinitely.
+acquire_lock() {
+  local owner attempts=0
+
+  while :; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -gt 10 ]; then
+      guard_log "poll: acquire_lock gave up after $attempts attempts (contended)"
+      return 1
+    fi
+
+    if mkdir "$LOCK_FILE" 2>/dev/null; then
+      if printf '%s\n' "$$" > "$LOCK_FILE/pid" 2>/dev/null; then
+        return 0
+      fi
+      # Could not record ownership: don't hold a lock we can't prove we own.
+      guard_log "poll: could not write pid file, releasing lock"
+      rm -rf "$LOCK_FILE" 2>/dev/null
+      return 1
+    fi
+
+    owner=$(cat "$LOCK_FILE/pid" 2>/dev/null)
+    case "$owner" in ''|*[!0-9]*) owner="" ;; esac
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+      return 1
+    fi
+
+    guard_log "poll: reclaiming stale lock from pid ${owner:-unknown}"
+    if mv "$LOCK_FILE" "$LOCK_FILE.stale.$$" 2>/dev/null; then
+      rm -rf "$LOCK_FILE.stale.$$" 2>/dev/null
+    fi
+    # Do not assume the reclaim made us the owner. Loop back to the top and
+    # retry mkdir like a fresh acquire.
+  done
+}
+
+# True only when the pid file under $LOCK_FILE names this process. Used by
+# main_loop to detect that a racing reclaim took the lock out from under it,
+# so a transient double-acquire self-corrects within one iteration instead
+# of two pollers running forever.
+own_lock() {
+  local owner
+  owner=$(cat "$LOCK_FILE/pid" 2>/dev/null)
+  [ -n "$owner" ] && [ "$owner" = "$$" ]
+}
+
+# Fix round 1, FIX D. Bounds the branch where the poller outlives the session
+# that spawned it: if nothing has run a gate in GATE_IDLE_TIMEOUT seconds,
+# nobody is left to serve, so the loop should stop rather than probe forever.
+# A missing or unreadable GATE_SEEN_STAMP is treated as "not idle" rather
+# than "idle since epoch": a poller launched fresh (from SessionStart, or
+# from the gate's own relaunch) may run for a while before the gate happens
+# to touch the stamp again, and that gap must not read as staleness.
+gate_idle() {
+  local now stamp age
+  now=$(date +%s)
+  stamp=$(cat "$GATE_SEEN_STAMP" 2>/dev/null)
+  case "$stamp" in ''|*[!0-9]*) return 1 ;; esac
+  age=$((now - stamp))
+  [ "$age" -ge "$GATE_IDLE_TIMEOUT" ]
+}
+
+# Lockfile singleton.
+main_loop() {
+  mkdir -p "$GUARD_DIR" 2>/dev/null
+  if ! acquire_lock; then
+    exit 0
+  fi
+  # The lock directory now holds a pid file, so it is never empty: rmdir
+  # would fail and leave the lock stuck. rm -rf is required. Only remove it
+  # if we still own it: if a racing reclaim already took it (see own_lock),
+  # unconditionally removing it here would delete the new owner's live lock
+  # out from under them.
+  trap 'own_lock && rm -rf "$LOCK_FILE" 2>/dev/null; :' EXIT INT TERM
+
+  while :; do
+    if ! own_lock; then
+      guard_log "poll: lost lock, exiting"
+      exit 0
+    fi
+    if guard_disabled; then sleep 60; continue; fi
+    if gate_idle; then
+      guard_log "poll: no gate seen for >= ${GATE_IDLE_TIMEOUT}s, exiting"
+      exit 0
+    fi
+    local pct
+    pct=$(poll_once)
+    sleep "$(interval_for "$pct")"
+  done
+}
+
+if [ -z "${POLLER_LIB_ONLY:-}" ]; then
+  main_loop &
+fi
