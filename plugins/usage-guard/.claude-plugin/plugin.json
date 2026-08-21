@@ -3,5 +3,9 @@
   "description": "Holds every Claude Code session on this machine at 95% of the rolling 5-hour usage window and releases them when it resets",
   "version": "0.1.0",
   "license": "MIT",
+  "author": {
+    "name": "Wildlife AI",
+    "email": "dirk@wildlifeai.co"
+  },
   "keywords": ["usage", "rate-limit", "hooks", "watchdog"]
 }
