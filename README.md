@@ -80,6 +80,38 @@ bash:
 export CLAUDE_USAGE_GUARD_OFF=1
 ```
 
+## Optional: statusline shim for fresher readings
+
+The plugin works fully without this. The poller is the floor: it keeps `state.json`
+current on its own schedule and the gate reads it regardless of whether a statusline
+is configured.
+
+Claude Code passes a `rate_limits` block to a statusline command on roughly a
+30-second refresh, and to no hook. Pointing `hooks/usage-statusline` at that command
+lets the gate see a fresher reading wherever a statusline runs, without replacing the
+poller: a headless `claude -p` session renders no statusline at all, and that is
+exactly where long unattended work happens, so the poller keeps covering it either
+way. Both sensors write the same `state.json` through the same atomic write, and the
+gate has no way to tell which one wrote a given reading, nor does it need to.
+
+A plugin cannot install a `statusLine` setting on a user's behalf, so wiring this up
+is a manual, per-machine step. Add it to `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"/ABSOLUTE/PATH/TO/usage-guard/hooks/usage-statusline\"",
+    "refreshInterval": 30
+  }
+}
+```
+
+Use the absolute path to your clone, matching the one used for the hooks in
+`hooks/hooks.json`. This setting **replaces** any existing statusline command: a user
+who already has one configured needs to merge the two rather than overwrite, since
+only one `statusLine.command` can run.
+
 ## Where state lives
 
 Everything is under `~/.claude/usage-guard/` (overridable via `GUARD_DIR`):
