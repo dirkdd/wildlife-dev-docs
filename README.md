@@ -3,9 +3,11 @@
 A Claude Code plugin that holds every session on a machine at the edge of its rolling
 5-hour usage window instead of letting them run it out. A background poller tracks
 the window's usage percentage, and a `PreToolUse` hook reads that state on every tool
-call: below 90% it is invisible, from 90-94% it blocks new subagent spawns while
-letting existing work finish, and at 95% and above it holds the tool call until the
-window resets, then lets it through with no error and no lost work.
+call: below 80% it is invisible, from 80% up it surfaces one throttled advisory
+message and then stays quiet until the throttle expires, from 90-94% it also blocks
+new subagent spawns while letting existing work finish, and at 95% and above it
+holds the tool call until the window resets, then lets it through with no error and
+no lost work.
 
 ## Install
 
@@ -79,9 +81,10 @@ Everything is under `~/.claude/usage-guard/` (overridable via `GUARD_DIR`):
 - `state.json`: the poller's last reading, usage percentage, window reset time, and
   the timestamp it was written.
 - `guard.log`: an append-only line per gate decision that was not a plain ALLOW
-  (relaunches, drain denials, freeze start/end), plus poller lifecycle lines.
-- `guard.lock`, `last-relaunch`, `gate-seen`: internal coordination files. Safe to
-  delete while no session is frozen; the guard fails open and recreates them.
+  (relaunches, warns, drain denials, freeze start/end), plus poller lifecycle lines.
+- `guard.lock`, `last-relaunch`, `gate-seen`, `last-warn`: internal coordination
+  files. Safe to delete while no session is frozen; the guard fails open and
+  recreates them.
 
 ## Configuring thresholds
 
@@ -91,6 +94,7 @@ sessions inherit:
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `THRESHOLD_WARN` | `80` | Usage percentage at which the gate starts surfacing a throttled advisory message. |
 | `THRESHOLD_DRAIN` | `90` | Usage percentage at which new subagent spawns start getting denied. |
 | `THRESHOLD_FREEZE` | `95` | Usage percentage at which tool calls are held until the window resets. |
 | `STALE_SECONDS` | `1200` | How old a state reading can be before the gate treats it as unknown and allows the call. |
@@ -100,6 +104,7 @@ sessions inherit:
 | `PROBE_TIMEOUT` | `60` | Seconds the poller waits for a single usage probe before killing it. |
 | `RELAUNCH_THROTTLE` | `60` | Minimum seconds between the gate's attempts to relaunch a missing poller. |
 | `GATE_IDLE_TIMEOUT` | `1800` | Seconds without a tool call before the poller assumes no session is left to serve and exits. |
+| `WARN_THROTTLE` | `600` | Minimum seconds between two advisory messages. |
 
 The file paths under "Where state lives" above (`STATE_FILE`, `DISABLE_FILE`, `LOCK_FILE`,
 `LOG_FILE`) are also individually overridable; in practice `GUARD_DIR` alone covers them.

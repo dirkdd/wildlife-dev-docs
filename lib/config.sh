@@ -9,9 +9,17 @@
 
 : "${THRESHOLD_DRAIN:=90}"
 : "${THRESHOLD_FREEZE:=95}"
+: "${THRESHOLD_WARN:=80}"
 : "${STALE_SECONDS:=1200}"
 : "${RESET_BUFFER:=60}"
 : "${SLEEP_INCREMENT:=20}"
+
+# One throttled advisory per window, not one per tool call. Screened the same
+# way as the other bash-arithmetic consumers above (leading zero reads as
+# octal; any other non-digit breaks the comparison outright).
+: "${WARN_STAMP:=$GUARD_DIR/last-warn}"
+: "${WARN_THROTTLE:=600}"
+case "$WARN_THROTTLE" in ''|*[!0-9]*|0?*) WARN_THROTTLE=600 ;; esac
 
 # Must match the "timeout" value in hooks/hooks.json. The gate releases 120
 # seconds before this so an overrun degrades to one leaked call.
@@ -118,4 +126,12 @@ relaunch_due() {
 # the side effect matters.
 gate_seen() {
   stamp_due "$GATE_SEEN_STAMP" "$RELAUNCH_THROTTLE" "$1"
+}
+
+# True (and stamps WARN_STAMP) when the gate may emit the 80% advisory;
+# false while a prior warning is still inside WARN_THROTTLE. Reuses
+# stamp_due rather than reimplementing the same read/screen/write, same as
+# relaunch_due and gate_seen above.
+warn_due() {
+  stamp_due "$WARN_STAMP" "$WARN_THROTTLE" "$1"
 }

@@ -51,9 +51,14 @@ assert_eq "$code" "0" "deny still exits 0"
 assert_eq "$(printf '%s' "$out" | grep -c '"permissionDecision":"deny"')" "1" "drain band denies an Agent spawn"
 assert_eq "$(printf '%s' "$out" | grep -c '"hookEventName":"PreToolUse"')" "1" "deny JSON names the event"
 
-# Drain band, ordinary tool: allowed.
+# Drain band, ordinary tool: proceeds (no permission decision either way).
+# Task 14: this used to assert an empty $out. It no longer can, because the
+# WARN check has no upper bound of its own (see lib/decide.sh) and this is
+# the first non-throttled WARN of the whole file, so it now carries the
+# advisory alongside the silent allow.
 out=$(payload Bash | bash "$ROOT/hooks/usage-gate")
-assert_eq "$out" "" "drain band lets non-spawn tools through"
+assert_eq "$(printf '%s' "$out" | grep -c 'permissionDecision')" "0" "drain band still lets non-spawn tools proceed"
+assert_eq "$(printf '%s' "$out" | grep -c 'systemMessage')" "1" "drain band non-spawn tools now carry the warn advisory too"
 
 # No state file at all: fail open, and (FIX B) relaunch the poller.
 rm -f "$STATE_FILE" "$POLLER_MARKER"
@@ -169,3 +174,15 @@ wait_for_launch
 assert_eq "$out" "" "an inherited POLLER_BIN still prints nothing on the gate's stdout"
 assert_eq "$([ -e "$DECOY_MARKER" ] && echo ran || echo did-not-run)" "did-not-run" "an inherited POLLER_BIN is ignored, not executed"
 assert_eq "$(launch_count)" "1" "the gate still launches its own poller (via USAGE_GUARD_TEST_POLLER) rather than the decoy"
+
+# --- Task 14: warning band at 80% ---
+
+write_state 85 "$(( $(date +%s) + 3600 ))"
+rm -f "$GUARD_DIR/last-warn"
+out=$(payload Bash | bash "$ROOT/hooks/usage-gate"); code=$?
+assert_eq "$code" "0" "warn path exits 0"
+assert_eq "$(printf '%s' "$out" | grep -c 'permissionDecision')" "0" "warn never emits a permission decision"
+assert_eq "$([ -n "$out" ] && echo present || echo empty)" "present" "the first warn actually emits a message"
+
+out2=$(payload Bash | bash "$ROOT/hooks/usage-gate")
+assert_eq "$out2" "" "second warn inside the throttle window is silent"

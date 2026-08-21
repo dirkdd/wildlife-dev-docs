@@ -106,6 +106,18 @@ case "$ACTION" in
     guard_log "freeze end reason=$REASON tool=$TOOL"
     exit 0
     ;;
+  WARN)
+    # One throttled advisory, not one per tool call. No permission decision:
+    # this path never denies or holds anything, it only informs. Verified
+    # against a disposable session (task-14 report) that Claude Code accepts
+    # a bare {"systemMessage":...} on PreToolUse, surfaces it, and leaves the
+    # tool call's outcome untouched.
+    if warn_due "$NOW"; then
+      guard_log "warn pct=$PCT"
+      printf '{"systemMessage":"usage-guard: %s%% of the 5-hour window used. Subagent spawns stop at 90%%, work pauses at 95%%."}\n' "$PCT"
+    fi
+    exit 0
+    ;;
   *)
     exit 0
     ;;

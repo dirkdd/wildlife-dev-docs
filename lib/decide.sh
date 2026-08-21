@@ -38,6 +38,16 @@ decide() {
     esac
   fi
 
+  # Order matters: FREEZE, then DENY_SPAWN, then WARN, then ALLOW. A tool
+  # that survived the drain check above (either because it is not a spawn,
+  # or because pct has not reached THRESHOLD_DRAIN yet) still gets a WARN
+  # here for any pct at or above THRESHOLD_WARN, including pct in the drain
+  # band itself: a non-spawn tool at 94% is not denied, but it still warns.
+  if [ "$pct" -ge "$THRESHOLD_WARN" ]; then
+    printf 'WARN\n'
+    return 0
+  fi
+
   printf 'ALLOW\n'
   return 0
 }
