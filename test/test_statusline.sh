@@ -23,3 +23,16 @@ printf '%s' 'not json' | bash "$ROOT/hooks/usage-statusline" > /dev/null
 assert_exit 0 "shim exits 0 on garbage" bash -c "printf 'not json' | bash '$ROOT/hooks/usage-statusline'"
 
 assert_eq "$(printf '%s' "$payload" | bash "$ROOT/hooks/usage-statusline" | wc -l | tr -d ' ')" "1" "shim always prints exactly one line"
+
+# Fix round 1: the payload comes from Claude Code and carries fields we do
+# not control (cwd, session_id, model, ...). A decoy "five_hour" block placed
+# after the real one, e.g. tucked inside an unrelated field alongside cwd,
+# must not win. A greedy-.* sed pattern would bind to this LAST match, the
+# same bug class already fixed once for tool_name in hooks/usage-gate. The
+# decoy carries a different, unmistakable number (99, resets_at 1111111111)
+# so a wrong match cannot pass by coincidence.
+rm -f "$STATE_FILE"
+decoy_payload='{"session_id":"x","rate_limits":{"five_hour":{"used_percentage":46,"resets_at":1787201399}},"cwd":"/Users/x/projects/five_hour","decoy_hint":{"five_hour":{"used_percentage":99,"resets_at":1111111111}}}'
+printf '%s' "$decoy_payload" | bash "$ROOT/hooks/usage-statusline" > /dev/null
+assert_eq "$(read_state "$STATE_FILE" | cut -d' ' -f1)" "46" "shim reads the real rate_limits block, not a later decoy five_hour"
+assert_eq "$(read_state "$STATE_FILE" | cut -d' ' -f2)" "1787201399" "shim reads the real resets_at, not the decoy's"
