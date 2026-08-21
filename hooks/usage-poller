@@ -166,6 +166,22 @@ own_lock() {
   [ -n "$owner" ] && [ "$owner" = "$$" ]
 }
 
+# Fix round 1, FIX D. Bounds the branch where the poller outlives the session
+# that spawned it: if nothing has run a gate in GATE_IDLE_TIMEOUT seconds,
+# nobody is left to serve, so the loop should stop rather than probe forever.
+# A missing or unreadable GATE_SEEN_STAMP is treated as "not idle" rather
+# than "idle since epoch": a poller launched fresh (from SessionStart, or
+# from the gate's own relaunch) may run for a while before the gate happens
+# to touch the stamp again, and that gap must not read as staleness.
+gate_idle() {
+  local now stamp age
+  now=$(date +%s)
+  stamp=$(cat "$GATE_SEEN_STAMP" 2>/dev/null)
+  case "$stamp" in ''|*[!0-9]*) return 1 ;; esac
+  age=$((now - stamp))
+  [ "$age" -ge "$GATE_IDLE_TIMEOUT" ]
+}
+
 # Lockfile singleton.
 main_loop() {
   mkdir -p "$GUARD_DIR" 2>/dev/null
@@ -185,6 +201,10 @@ main_loop() {
       exit 0
     fi
     if guard_disabled; then sleep 60; continue; fi
+    if gate_idle; then
+      guard_log "poll: no gate seen for >= ${GATE_IDLE_TIMEOUT}s, exiting"
+      exit 0
+    fi
     local pct
     pct=$(poll_once)
     sleep "$(interval_for "$pct")"

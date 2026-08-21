@@ -132,3 +132,29 @@ own_lock
 assert_eq "$?" "1" "own_lock returns 1 when the pid file holds a different pid"
 
 rm -rf "$LOCK_FILE"
+
+# --- Fix round 1, FIX D: gate_idle bounds the immortal-poller branch ---
+
+GATE_SEEN_STAMP="$GUARD_DIR/gate-seen"
+
+rm -f "$GATE_SEEN_STAMP"
+gate_idle
+assert_eq "$?" "1" "a missing heartbeat stamp reads as not-idle, not idle-since-epoch"
+
+printf 'not-a-timestamp\n' > "$GATE_SEEN_STAMP"
+gate_idle
+assert_eq "$?" "1" "a garbage heartbeat stamp reads as not-idle"
+
+printf '%s\n' "$(date +%s)" > "$GATE_SEEN_STAMP"
+gate_idle
+assert_eq "$?" "1" "a heartbeat touched just now is not idle"
+
+printf '%s\n' "$(( $(date +%s) - GATE_IDLE_TIMEOUT + 10 ))" > "$GATE_SEEN_STAMP"
+gate_idle
+assert_eq "$?" "1" "a heartbeat just inside GATE_IDLE_TIMEOUT is not idle"
+
+printf '%s\n' "$(( $(date +%s) - GATE_IDLE_TIMEOUT - 10 ))" > "$GATE_SEEN_STAMP"
+gate_idle
+assert_eq "$?" "0" "a heartbeat older than GATE_IDLE_TIMEOUT is idle"
+
+rm -f "$GATE_SEEN_STAMP"

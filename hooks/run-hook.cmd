@@ -13,19 +13,24 @@ if "%~1"=="" (
 
 set "HOOK_DIR=%~dp0"
 
+REM Bare "exit /b" below, not "exit /b %ERRORLEVEL%": cmd.exe expands
+REM %ERRORLEVEL% once, at parse time of the enclosing parenthesised block,
+REM so it would have carried the errorlevel from BEFORE the bash call, not
+REM after. A bare "exit /b" needs no expansion and just propagates whatever
+REM the last command actually set.
 if exist "C:\Program Files\Git\bin\bash.exe" (
     "C:\Program Files\Git\bin\bash.exe" "%HOOK_DIR%%~1" %2 %3 %4 %5 %6 %7 %8 %9
-    exit /b %ERRORLEVEL%
+    exit /b
 )
 if exist "C:\Program Files (x86)\Git\bin\bash.exe" (
     "C:\Program Files (x86)\Git\bin\bash.exe" "%HOOK_DIR%%~1" %2 %3 %4 %5 %6 %7 %8 %9
-    exit /b %ERRORLEVEL%
+    exit /b
 )
 
 where bash >nul 2>nul
 if %ERRORLEVEL% equ 0 (
     bash "%HOOK_DIR%%~1" %2 %3 %4 %5 %6 %7 %8 %9
-    exit /b %ERRORLEVEL%
+    exit /b
 )
 
 REM No bash found. Exit 0 so the absence of a guard never breaks tool calls.

@@ -28,14 +28,48 @@ guard_disabled && exit 0
 # occurrence.
 TOOL=$(printf '%s' "$PAYLOAD" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
 
+NOW=$(date +%s)
+
+# The gate is the only thing every session runs on every tool call, so it
+# doubles as the poller's heartbeat: touch this on every path, including the
+# fast ALLOW below, throttled to at most one small write a minute.
+# usage-poller's GATE_IDLE_TIMEOUT reads it to tell a genuinely idle machine
+# from a live one and stop probing accordingly.
+gate_seen "$NOW" >/dev/null 2>&1
+
+# Overridable so tests can point this at a harmless stub instead of the real
+# poller (which would otherwise shell out to `claude -p "/usage"`).
+: "${POLLER_BIN:=$HOOK_DIR/usage-poller}"
+
+# Launches the poller detached when the gate finds no usable state, so
+# recovery is bounded by one tool call instead of waiting on a SessionStart
+# that may never come again for a session already in progress.
+# acquire_lock inside usage-poller makes a redundant launch a no-op, and
+# relaunch_due throttles this so a stretch of stale state cannot spawn one
+# process per tool call. Every stream is discarded and nothing is waited on:
+# a byte reaching the gate's own stdout would be parsed as a hook decision.
+relaunch_poller() {
+  relaunch_due "$NOW" || return 0
+  guard_log "gate: relaunching poller"
+  "$POLLER_BIN" </dev/null >/dev/null 2>&1 &
+  return 0
+}
+
 STATE=$(read_state)
-[ "$STATE" = "UNKNOWN" ] && exit 0
+if [ "$STATE" = "UNKNOWN" ]; then
+  relaunch_poller
+  exit 0
+fi
 
 set -- $STATE
 PCT="$1"; RESETS="$2"; TS="$3"
 
-NOW=$(date +%s)
-ACTION=$(decide "$PCT" "$TOOL" "$NOW" "$TS")
+AGE=$((NOW - TS))
+if [ "$AGE" -lt 0 ] || [ "$AGE" -gt "$STALE_SECONDS" ]; then
+  relaunch_poller
+fi
+
+ACTION=$(decide "$PCT" "$TOOL" "$NOW" "$TS" "$RESETS")
 
 case "$ACTION" in
   ALLOW)

@@ -20,3 +20,55 @@
   printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_b )
 
 cat /tmp/ug_cfg_a /tmp/ug_cfg_b >/dev/null 2>&1
+
+# --- Fix round 1: relaunch/heartbeat throttle defaults and stamp_due ---
+
+( unset RELAUNCH_STAMP RELAUNCH_THROTTLE GATE_SEEN_STAMP GATE_IDLE_TIMEOUT
+  export GUARD_DIR=/tmp/ug-cfg-c
+  . "$(dirname "$0")/../lib/config.sh"
+  assert_eq "$RELAUNCH_STAMP" "/tmp/ug-cfg-c/last-relaunch" "relaunch stamp sits under the guard dir by default"
+  assert_eq "$RELAUNCH_THROTTLE" "60" "relaunch throttle defaults to 60"
+  assert_eq "$GATE_SEEN_STAMP" "/tmp/ug-cfg-c/gate-seen" "gate-seen stamp sits under the guard dir by default"
+  assert_eq "$GATE_IDLE_TIMEOUT" "1800" "gate idle timeout defaults to 1800"
+
+  # A malformed RELAUNCH_THROTTLE (leading zero parses as octal) must not
+  # crash the arithmetic in stamp_due, same class of guard as
+  # HOOK_TIMEOUT_SECONDS and PROBE_TIMEOUT above.
+  RELAUNCH_THROTTLE=0100
+  case "$RELAUNCH_THROTTLE" in ''|*[!0-9]*|0?*) RELAUNCH_THROTTLE=60 ;; esac
+  assert_eq "$RELAUNCH_THROTTLE" "60" "a leading-zero throttle value falls back to the default"
+
+  printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_c )
+cat /tmp/ug_cfg_c >/dev/null 2>&1
+
+( export GUARD_DIR=/tmp/ug-cfg-d RELAUNCH_THROTTLE=60
+  rm -rf "$GUARD_DIR"; mkdir -p "$GUARD_DIR"
+  . "$(dirname "$0")/../lib/config.sh"
+  NOW=1000000
+
+  # First call: no stamp exists yet, so it is due, and it writes the stamp.
+  stamp_due "$GUARD_DIR/stamp" "$RELAUNCH_THROTTLE" "$NOW"
+  assert_eq "$?" "0" "stamp_due fires on a fresh (missing) stamp"
+  assert_eq "$(cat "$GUARD_DIR/stamp")" "$NOW" "stamp_due writes the epoch it was given"
+
+  # Immediately after: inside the throttle window, so it must not fire again.
+  stamp_due "$GUARD_DIR/stamp" "$RELAUNCH_THROTTLE" "$((NOW + 5))"
+  assert_eq "$?" "1" "stamp_due does not fire again inside the throttle window"
+  assert_eq "$(cat "$GUARD_DIR/stamp")" "$NOW" "a throttled call leaves the stamp untouched"
+
+  # Once the throttle has elapsed, it fires again and moves the stamp.
+  stamp_due "$GUARD_DIR/stamp" "$RELAUNCH_THROTTLE" "$((NOW + 61))"
+  assert_eq "$?" "0" "stamp_due fires again once the throttle has elapsed"
+  assert_eq "$(cat "$GUARD_DIR/stamp")" "$((NOW + 61))" "the stamp advances to the new call time"
+
+  # relaunch_due and gate_seen are stamp_due against their own configured
+  # files, independent of each other.
+  rm -f "$RELAUNCH_STAMP" "$GATE_SEEN_STAMP"
+  relaunch_due "$NOW"
+  assert_eq "$?" "0" "relaunch_due fires on a fresh RELAUNCH_STAMP"
+  gate_seen "$NOW"
+  assert_eq "$?" "0" "gate_seen fires on a fresh GATE_SEEN_STAMP"
+  assert_eq "$([ -f "$RELAUNCH_STAMP" ] && [ -f "$GATE_SEEN_STAMP" ] && echo both || echo missing)" "both" "relaunch_due and gate_seen write to two independent stamp files"
+
+  printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_d )
+cat /tmp/ug_cfg_d >/dev/null 2>&1

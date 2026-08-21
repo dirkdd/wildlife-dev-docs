@@ -2,7 +2,7 @@
 # testable without a filesystem or a clock.
 
 decide() {
-  local pct="$1" tool="$2" now="$3" ts="$4"
+  local pct="$1" tool="$2" now="$3" ts="$4" resets_at="$5"
 
   # Anything we cannot read as a number means we do not know, and not knowing
   # means we allow the call.
@@ -16,6 +16,16 @@ decide() {
   # trusting a reading from the future.
   [ "$age" -lt 0 ] && { printf 'ALLOW\n'; return 0; }
   [ "$age" -gt "$STALE_SECONDS" ] && { printf 'ALLOW\n'; return 0; }
+
+  # A fresh session starting just after a window reset can still read the
+  # previous session's leftover state.json: it is younger than STALE_SECONDS,
+  # so the age check above lets it through. Once "now" has reached resets_at
+  # the window has actually turned over, so that reading no longer describes
+  # the current window and must not drive a decision. FREEZE happened to be
+  # safe already, because freeze_until releases the instant the reset has
+  # passed; the drain band was not, since it never looks at resets_at at all.
+  case "$resets_at" in ''|*[!0-9]*) printf 'ALLOW\n'; return 0 ;; esac
+  [ "$now" -ge "$resets_at" ] && { printf 'ALLOW\n'; return 0; }
 
   if [ "$pct" -ge "$THRESHOLD_FREEZE" ]; then
     printf 'FREEZE\n'
