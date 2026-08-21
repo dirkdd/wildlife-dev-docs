@@ -142,21 +142,41 @@ assert_eq "$(launch_count)" "1" "a second stale/missing call within RELAUNCH_THR
 # --- Fix round 2 ---
 
 # FIX 1: the relaunch must not depend on the poller script's own executable
-# bit. A stub written WITHOUT chmod +x proves the gate runs it via `bash`
-# rather than executing it directly.
+# bit. A stub written WITHOUT chmod +x is supposed to prove the gate runs it
+# via `bash` rather than executing it directly, but that only proves
+# anything on a filesystem where a plain redirect creates a non-executable
+# file and `chmod -x` actually clears the bit. On this filesystem neither
+# holds (see commit 7425987 and the ledger note this fix responds to): a
+# heredoc-created file already comes out executable, so the assertion below
+# would pass identically whether the gate ran the stub via `bash` or
+# executed it directly, proving nothing about the property it claims to
+# cover. Try to force the non-executable state with an explicit chmod -x and
+# check it actually took; run the exec-bit assertion only if it did, and
+# skip with a visible message otherwise so this never silently reports
+# coverage it did not get.
 NOEXEC_MARKER="$GUARD_DIR/noexec-launches"
 NOEXEC_POLLER="$GUARD_DIR/stub-poller-noexec"
 cat > "$NOEXEC_POLLER" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$\$" >> "$NOEXEC_MARKER"
 STUB
-# Deliberately no chmod +x.
-rm -f "$STATE_FILE" "$GUARD_DIR/last-relaunch" "$NOEXEC_MARKER"
-out=$(payload Bash | USAGE_GUARD_TEST_POLLER="$NOEXEC_POLLER" bash "$ROOT/hooks/usage-gate")
-tries=0
-while [ ! -s "$NOEXEC_MARKER" ] && [ "$tries" -lt 20 ]; do sleep 0.1; tries=$((tries + 1)); done
-assert_eq "$out" "" "a non-executable poller stub still prints nothing on the gate's stdout"
-assert_eq "$([ -s "$NOEXEC_MARKER" ] && echo ran || echo did-not-run)" "ran" "the relaunch runs the poller through bash, independent of its executable bit"
+chmod -x "$NOEXEC_POLLER" 2>/dev/null
+if [ -x "$NOEXEC_POLLER" ]; then
+  printf '  skip the exec-bit poller-stub check (chmod -x does not take effect on this filesystem)\n'
+else
+  rm -f "$STATE_FILE" "$GUARD_DIR/last-relaunch" "$NOEXEC_MARKER"
+  out=$(payload Bash | USAGE_GUARD_TEST_POLLER="$NOEXEC_POLLER" bash "$ROOT/hooks/usage-gate")
+  tries=0
+  while [ ! -s "$NOEXEC_MARKER" ] && [ "$tries" -lt 20 ]; do sleep 0.1; tries=$((tries + 1)); done
+  assert_eq "$out" "" "a non-executable poller stub still prints nothing on the gate's stdout"
+  assert_eq "$([ -s "$NOEXEC_MARKER" ] && echo ran || echo did-not-run)" "ran" "the relaunch runs the poller through bash, independent of its executable bit"
+fi
+
+# The platform-independent form of the same property: assert the gate's own
+# source invokes the poller as `bash "$POLLER_BIN"` rather than executing it
+# directly. This is what actually catches a regression back to direct
+# execution, regardless of what any given filesystem does with exec bits.
+assert_eq "$(grep -c '^[[:space:]]*bash "\$POLLER_BIN"' "$ROOT/hooks/usage-gate")" "1" "the gate invokes the poller as bash \"\$POLLER_BIN\", not by executing it directly"
 
 # FIX 2: a POLLER_BIN inherited from the environment must be ignored. Point
 # it at a decoy that would prove itself if executed, then confirm the decoy
