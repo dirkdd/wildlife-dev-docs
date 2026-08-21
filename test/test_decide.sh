@@ -54,3 +54,11 @@ assert_eq "$(decide 99 Bash "$NOW" "$((NOW + 9999))" "$RESET_FUTURE")" "ALLOW" "
 assert_eq "$(decide 99 Bash "$NOW" "$FRESH" "$RESET_PAST")"   "ALLOW" "a passed reset allows even at 99%"
 assert_eq "$(decide 99 Bash "$NOW" "$FRESH" "$RESET_FUTURE")" "FREEZE" "the same state with a future reset still freezes"
 assert_eq "$(decide 92 Agent "$NOW" "$FRESH" "$RESET_PAST")"  "ALLOW" "a passed reset allows a spawn rather than denying it"
+
+# A five-hour window can never reset more than six hours out. This is the
+# real hazard: a statusline payload that hands over resets_at in
+# milliseconds passes the digit screen and still reads as "in the future"
+# when compared against a seconds-based now, so a seconds-to-milliseconds
+# confusion looks exactly like this value (now + 30000, over 8 hours out).
+RESET_UNIT_CONFUSED=$((NOW + 30000))
+assert_eq "$(decide 99 Bash "$NOW" "$FRESH" "$RESET_UNIT_CONFUSED")" "ALLOW" "a resets_at more than six hours out fails open instead of freezing on a unit confusion"

@@ -27,6 +27,16 @@ decide() {
   case "$resets_at" in ''|*[!0-9]*) printf 'ALLOW\n'; return 0 ;; esac
   [ "$now" -ge "$resets_at" ] && { printf 'ALLOW\n'; return 0; }
 
+  # A five-hour window can never reset more than six hours out. resets_at
+  # passes the digit screen above whether the sensor wrote seconds or
+  # milliseconds, and a millisecond value read as seconds looks like it is
+  # hours or days in the future, so `now >= resets_at` above can never catch
+  # it. Left unscreened, freeze_until would loop on that value until the
+  # ~5.4 hour deadline, every time, long after the real window reset. Any
+  # resets_at further out than a window can genuinely land is a unit or
+  # parse error and must fail open like every other unusable input above.
+  [ $((resets_at - now)) -gt 21600 ] && { printf 'ALLOW\n'; return 0; }
+
   if [ "$pct" -ge "$THRESHOLD_FREEZE" ]; then
     printf 'FREEZE\n'
     return 0
