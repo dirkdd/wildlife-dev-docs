@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Optional statusline shim. Claude Code passes rate_limits to a statusline
+# command and to no hook, so this is the only way to read usage at roughly
+# 30-second freshness. It is ADDITIVE: the poller remains the floor, because a
+# headless -p session renders no statusline at all.
+#
+# Prints exactly one line so the user's statusline still shows something.
+
+PAYLOAD=$(cat 2>/dev/null)
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB="$HOOK_DIR/../lib"
+. "$LIB/config.sh" 2>/dev/null || { printf '\n'; exit 0; }
+POLLER_LIB_ONLY=1 . "$HOOK_DIR/usage-poller" 2>/dev/null || { printf '\n'; exit 0; }
+
+BLOCK=$(printf '%s' "$PAYLOAD" | tr -d '\n' | sed -n 's/.*"five_hour"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p' | head -1)
+
+# used_percentage arrives already scaled 0-100 (Claude Code multiplies its
+# internal 0-to-1 fraction before building this payload). Never multiply by
+# 100 here; test/test_statusline.sh pins this with a non-round percentage.
+PCT=$(printf '%s' "$BLOCK" | sed -n 's/.*"used_percentage"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+RESETS=$(printf '%s' "$BLOCK" | sed -n 's/.*"resets_at"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+
+if [ -n "$PCT" ] && [ -n "$RESETS" ]; then
+  write_state_file "$PCT" "$RESETS"
+  printf 'usage %s%%\n' "$PCT"
+  exit 0
+fi
+
+printf '\n'
+exit 0
