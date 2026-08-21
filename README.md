@@ -168,8 +168,8 @@ process runs inside a wrapper process for as long as the freeze lasts.
   "subtype":"informational"}` event positioned alongside the tool's completion
   notification rather than inside the `tool_result` that carries content back to the
   model. That is consistent with a UI and observability side-channel rather than
-  context injection, so whether the model itself ever sees the advisory is, likely
-  not, unverified. `guard.log` is unaffected either way and records every warn
+  context injection, so the model probably never sees the advisory, though this was
+  not proven either way. `guard.log` is unaffected either way and records every warn
   regardless of output mode.
 
 ## Verified behavior
