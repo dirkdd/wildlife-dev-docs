@@ -62,9 +62,10 @@ machine within one `SLEEP_INCREMENT` (20 seconds by default).
 A frozen session looks exactly like a hung one from the outside: the session sits
 still, produces no output, and shows no error, for as long as the freeze holds, up to
 about 5.4 hours. Nothing in the transcript marks it as the guard rather than a stuck
-process. The one piece of evidence is `guard.log`: a `freeze start` line with no
-matching `freeze end` confirms this is the guard holding the call, not a hang, so
-check there before assuming something is broken. Pressing Esc against a session in
+process. The one piece of evidence is `guard.log` at `~/.claude/usage-guard/guard.log`:
+a `freeze start` line with no matching `freeze end` confirms this is the guard holding
+the call, not a hang, so check there before assuming something is broken. Pressing Esc
+against a session in
 that state is untested (see "Known limitations" below), so it is not the recommended
 way to find out which situation you are in. Creating the DISABLE file (see below)
 thaws the session within one `SLEEP_INCREMENT`, about 20 seconds by default, and is

@@ -40,13 +40,13 @@ case "$SLEEP_INCREMENT" in ''|*[!0-9]*|0?*|0) SLEEP_INCREMENT=20 ;; esac
 # this whole system is built around, so no extra screen changes the outcome.
 #
 # RESET_BUFFER is also left unscreened. It only feeds
-# `target=$((resets_at + RESET_BUFFER))` in freeze.sh; a bad value makes
-# that arithmetic expansion error, target stays unset, and the `now -ge
-# target` early-release check below it errors the same way and reads as
-# false. The loop then simply runs to `deadline`, which freeze.sh computes
-# independently and which is unaffected by RESET_BUFFER, so a bad value can
-# only make a freeze last as long as the pre-existing hard deadline already
-# allows, never longer or unbounded.
+# `target=$((resets_at + RESET_BUFFER))` in freeze.sh; a bad value there
+# (confirmed: something like `60s`) makes that arithmetic expansion fatal to
+# freeze_until, which returns immediately having printed nothing. Because
+# usage-gate calls it inside a command substitution, only that subshell
+# dies; REASON comes back empty and the gate exits 0. So a malformed
+# RESET_BUFFER produces no freeze at all, rather than a maximal one, which
+# is still the fail-open direction this whole system is built around.
 
 # One throttled advisory per window, not one per tool call. Screened the same
 # way as the other bash-arithmetic consumers above (leading zero reads as
