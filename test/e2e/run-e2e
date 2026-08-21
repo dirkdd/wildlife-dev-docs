@@ -4,13 +4,15 @@
 #
 # Each check costs one real `claude -p` session. Run ONE check per invocation
 # via the numeric argument (1-4) and inspect its output before running the
-# next. Do not pipe this script's combined output through a display filter
-# (e.g. `sed -n '/== 2/,/== 3/p'`) expecting it to run only part of the
-# script -- a pipe filters what you SEE, it does not stop the producer, and a
-# backgrounded run in that shape can outlive being told to stop (see
-# README.md "Verified behavior" for the incident this caused). Passing no
-# argument runs all four back to back, which is exactly what to avoid when
-# real budget is on the line.
+# next. A bare invocation (no argument) is a usage error, not a shortcut: it
+# prints usage and exits non-zero without starting any session. Running all
+# four back to back requires the explicit `all` argument, so it can never
+# happen by accident or muscle memory. Do not pipe this script's combined
+# output through a display filter (e.g. `sed -n '/== 2/,/== 3/p'`) expecting
+# it to run only part of the script -- a pipe filters what you SEE, it does
+# not stop the producer, and a backgrounded run in that shape can outlive
+# being told to stop (see README.md "Verified behavior" for the incident this
+# caused).
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="$ROOT/test/e2e/tmp"
@@ -76,6 +78,11 @@ case "${1:-}" in
   2) check2 ;;
   3) check3 ;;
   4) check4 ;;
-  "") check1; check2; check3; check4 ;;
-  *) echo "usage: run-e2e [1|2|3|4]" >&2; exit 1 ;;
+  all) check1; check2; check3; check4 ;;
+  *)
+    echo "usage: run-e2e <1|2|3|4|all>" >&2
+    echo "  1-4  run one check (one real claude -p session)" >&2
+    echo "  all  run all four back to back (four real sessions -- explicit, not the default)" >&2
+    exit 1
+    ;;
 esac

@@ -6,7 +6,8 @@ in `.superpowers/sdd/2026-08-20-usage-guard/task-11-report.md`.
 
 **Check 1 — below threshold, gate invisible.** `used_percentage=10`. Captured stdout:
 model reported `alive`, elapsed 19s (target: roughly 5-15s; slightly over, plausibly
-session-startup variance, not a gate artifact). Confirms the gate is silent below 80%.
+session-startup variance, not a gate artifact). Confirms the gate is silent at 10%
+usage, below the drain threshold (`THRESHOLD_DRAIN=90`).
 
 **Check 2 — freeze then release.** `used_percentage=99`, reset fabricated 90s out. Rerun
 in isolation (the run this section's evidence comes from) captured full stdout: model
@@ -15,7 +16,7 @@ reported `thawed` with no error text, elapsed 181s. `guard.log`:
 freeze start tool=Bash pct=99 resets_at=...
 freeze end reason=RESET tool=Bash
 ```
-161s between the two lines, against a roughly 150s target (90s fabricated reset +
+160s between the two lines, against a roughly 150s target (90s fabricated reset +
 60s RESET_BUFFER, quantized to a 20s wake increment). This is the central claim of the
 whole design: a tool call held by the gate reaches the model with a clean result and no
 sign it was paused.
