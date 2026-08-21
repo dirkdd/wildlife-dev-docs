@@ -24,9 +24,26 @@ git clone <this-repo-url> ~/.claude/usage-guard-src
 ```
 
 Then add the `PreToolUse` and `SessionStart` hooks from `hooks/hooks.json` in this repo
-to your `~/.claude/settings.json`, pointing `${CLAUDE_PLUGIN_ROOT}` at the clone path
-(`~/.claude/usage-guard-src`). `hooks/run-hook.cmd` is the entry point on Windows;
+to your `~/.claude/settings.json`. `hooks/run-hook.cmd` is the entry point on Windows;
 `hooks/usage-gate` and `hooks/usage-poller` are invoked directly on macOS and Linux.
+
+Copy the `PreToolUse` hook's `"timeout": 19800` field along with the rest of the entry.
+It is easy to omit when hand-copying, and nothing catches the omission: a hook with no
+`timeout` field gets Claude Code's own default, which is far shorter than the 5.4-hour
+deadline `HOOK_TIMEOUT_SECONDS` in `lib/config.sh` computes the freeze against. With the
+two out of sync, Claude Code kills every freeze early, the tool call it was holding
+proceeds unguarded, and nothing logs that this happened. If you change the timeout from
+19800, set `HOOK_TIMEOUT_SECONDS` to the same value or the freeze silently stops holding.
+
+`hooks/hooks.json` writes each command as `"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" ...`.
+That placeholder is how Claude Code's own plugin loader resolves a real, marketplace-
+installed plugin's path, and this repo has no marketplace manifest for that loader to
+use (see below), so it is unconfirmed whether `${CLAUDE_PLUGIN_ROOT}` resolves at all for
+hooks hand-copied into `settings.json` this way; it has not been verified against a live
+session. Do not rely on it. The safe option is to substitute the literal absolute path
+to your clone in place of `${CLAUDE_PLUGIN_ROOT}` in the command string itself, for
+example `"/home/you/.claude/usage-guard-src/hooks/run-hook.cmd"`, so the hook does not
+depend on a variable that may never resolve.
 
 `.claude-plugin/plugin.json` marks this repo as a Claude Code plugin, but it does not
 carry a `marketplace.json` manifest, so `/plugin marketplace add` has no listing to
@@ -41,6 +58,18 @@ two hook entries above. It does not modify any other settings.
 Both work without a working Claude session, because a session frozen by the guard
 cannot be used to turn the guard off. Either one thaws every frozen session on the
 machine within one `SLEEP_INCREMENT` (20 seconds by default).
+
+A frozen session looks exactly like a hung one from the outside: the session sits
+still, produces no output, and shows no error, for as long as the freeze holds, up to
+about 5.4 hours. Nothing in the transcript marks it as the guard rather than a stuck
+process. The one piece of evidence is `guard.log`: a `freeze start` line with no
+matching `freeze end` confirms this is the guard holding the call, not a hang, so
+check there before assuming something is broken. Pressing Esc against a session in
+that state is untested (see "Known limitations" below), so it is not the recommended
+way to find out which situation you are in. Creating the DISABLE file (see below)
+thaws the session within one `SLEEP_INCREMENT`, about 20 seconds by default, and is
+the safe way to confirm it was the guard: if the session resumes, it was frozen; if it
+does not, look elsewhere.
 
 **1. The DISABLE file.** Its presence disables the guard for every session on the
 machine until it is removed.
@@ -114,15 +143,28 @@ only one `statusLine.command` can run.
 
 ## Where state lives
 
+The poller runs `claude -p "/usage"` in the background on its own schedule, roughly
+every 2 to 15 minutes, to refresh `state.json`. That is a plain process spawn, not a
+model turn, which is why it is affordable to run this often, but it does mean the
+guard's sensor invokes the CLI on its own behind the scenes. Every probe is recorded
+in `guard.log`.
+
 Everything is under `~/.claude/usage-guard/` (overridable via `GUARD_DIR`):
 
 - `state.json`: the poller's last reading, usage percentage, window reset time, and
   the timestamp it was written.
 - `guard.log`: an append-only line per gate decision that was not a plain ALLOW
-  (relaunches, warns, drain denials, freeze start/end), plus poller lifecycle lines.
+  (relaunches, warns, drain denials, freeze start/end), plus poller lifecycle lines,
+  including every `claude -p "/usage"` probe.
 - `guard.lock`, `last-relaunch`, `gate-seen`, `last-warn`: internal coordination
   files. Safe to delete while no session is frozen; the guard fails open and
   recreates them.
+
+A stale `guard.lock` disables the guard silently: the lock exists to keep two pollers
+from running at once, and a poller that gets killed without running its exit trap can
+leave the lock held by a pid that later gets reused by an unrelated process, which
+then reads as "still running" forever. There is no independent liveness check, so
+recovery is manual: `rm -rf ~/.claude/usage-guard/guard.lock`.
 
 ## Configuring thresholds
 
@@ -207,8 +249,10 @@ process runs inside a wrapper process for as long as the freeze lasts.
 ## Verified behavior
 
 End-to-end verification against real `claude -p` sessions, via `test/e2e/run-e2e` and a
-fabricated state file (`test/e2e/settings-e2e.json`, `test/e2e/noop-poller`). Full detail
-in `.superpowers/sdd/2026-08-20-usage-guard/task-11-report.md`.
+fabricated state file (`test/e2e/settings-e2e.json`, `test/e2e/noop-poller`). The checks
+below are the full detail; the working report they were drafted from lived outside this
+repo (under `.superpowers/`, which is gitignored here) and is not something a clone of
+this repo carries with it.
 
 **Check 1, below threshold, gate invisible.** `used_percentage=10`. Captured stdout:
 model reported `alive`, elapsed 19s (target: roughly 5-15s; slightly over, plausibly
@@ -246,13 +290,16 @@ entirely), so the file appearing mid-freeze and producing `reason=ESCAPE` is exa
 behavior under test.
 
 Unit suite (`./test/run-tests`) unaffected: 134 assertions, 0 failed, both before and
-after this work.
+after this work, at the commit these checks were run against. The suite has grown since
+(150 assertions, 0 failed, as of this README revision); this number is a snapshot, not a
+live count.
 
 ## Fan-out behavior
 
 What happens when a freeze catches subagents already running, via
-`test/e2e/run-fanout` (same fabricated-state mechanism as above). Full detail in
-`.superpowers/sdd/2026-08-20-usage-guard/task-12-report.md`.
+`test/e2e/run-fanout` (same fabricated-state mechanism as above). As with "Verified
+behavior" above, the checks below are the full detail; the working report is outside
+this repo and not something a clone carries with it.
 
 A parent session launched three `general-purpose` agents in parallel, each running
 `bash -c "sleep 45; echo done"`. State started at `used_percentage=10` (fan-out allowed)
@@ -303,4 +350,6 @@ would behave the same way; that stronger claim is unconfirmed by this run and wo
 need a design (e.g. staggered `sleep` starts) that reliably lands every agent's first
 tool call after the freeze begins.
 
-Unit suite unaffected: 134 assertions, 0 failed, before and after this work.
+Unit suite unaffected: 134 assertions, 0 failed, before and after this work, at the
+commit this check was run against; see the note at the end of "Verified behavior" above
+for the current count.
