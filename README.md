@@ -3,11 +3,17 @@
 A Claude Code plugin that holds every session on a machine at the edge of its rolling
 5-hour usage window instead of letting them run it out. A background poller tracks
 the window's usage percentage, and a `PreToolUse` hook reads that state on every tool
-call: below 80% it is invisible, from 80% up it surfaces one throttled advisory
-message and then stays quiet until the throttle expires, from 90-94% it also blocks
-new subagent spawns while letting existing work finish, and at 95% and above it
-holds the tool call until the window resets, then lets it through with no error and
-no lost work.
+call: below 80% it is invisible, from 80% up it emits one throttled advisory and then
+stays quiet until the throttle expires, from 90-94% it also blocks new subagent
+spawns while letting existing work finish, and at 95% and above it holds the tool
+call until the window resets, then lets it through with no error and no lost work.
+
+The advisory's visibility depends on the client and output mode: confirmed showing up
+under `--output-format stream-json`, not shown at all in plain `-p` output, and
+whether the model itself ever receives it is unverified. `guard.log` records every
+warn unconditionally, regardless of output mode, and is the dependable way to observe
+them; see "Where state lives" below. Denying a spawn and freezing a tool call are real
+permission outcomes and are unaffected by any of this.
 
 ## Install
 
@@ -156,6 +162,15 @@ process runs inside a wrapper process for as long as the freeze lasts.
   the hook's stdin. JSON does not guarantee key order, so a future payload that
   reorders those keys would break the match. A structural fix needs a real JSON
   parser, which the zero-dependency design rule for this plugin forbids.
+- **The 80% advisory's reach into the model's own context is unverified.** The
+  `systemMessage` the gate emits on `PreToolUse` was confirmed visible under
+  `--output-format stream-json`, arriving as its own `{"type":"system",
+  "subtype":"informational"}` event positioned alongside the tool's completion
+  notification rather than inside the `tool_result` that carries content back to the
+  model. That is consistent with a UI and observability side-channel rather than
+  context injection, so whether the model itself ever sees the advisory is, likely
+  not, unverified. `guard.log` is unaffected either way and records every warn
+  regardless of output mode.
 
 ## Verified behavior
 
