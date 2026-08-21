@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# PreToolUse gate. Reads the hook payload on stdin and decides whether the tool
+# call proceeds, is denied, or is held until the usage window resets.
+#
+# Exits 0 on every path. Claude Code treats a nonzero command-hook exit as a
+# non-blocking error, and a guard that errors on every tool call would be worse
+# than no guard at all.
+
+# Consume stdin first and unconditionally. Exiting without draining the pipe
+# makes the writer see a closed descriptor.
+PAYLOAD=$(cat 2>/dev/null)
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB="$HOOK_DIR/../lib"
+
+. "$LIB/config.sh"  2>/dev/null || exit 0
+. "$LIB/escape.sh"  2>/dev/null || exit 0
+. "$LIB/state.sh"   2>/dev/null || exit 0
+. "$LIB/decide.sh"  2>/dev/null || exit 0
+. "$LIB/freeze.sh"  2>/dev/null || exit 0
+
+guard_disabled && exit 0
+
+# The top-level tool_name, not any "tool_name" string nested inside
+# tool_input (e.g. a Write of a fixture payload). A greedy-.* sed pattern
+# binds to the LAST match on a single-line payload; grep -o returns matches
+# in document order, so the first line here is the first (outermost)
+# occurrence.
+TOOL=$(printf '%s' "$PAYLOAD" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+
+NOW=$(date +%s)
+
+# The gate is the only thing every session runs on every tool call, so it
+# doubles as the poller's heartbeat: touch this on every path, including the
+# fast ALLOW below, throttled to at most one small write a minute.
+# usage-poller's GATE_IDLE_TIMEOUT reads it to tell a genuinely idle machine
+# from a live one and stop probing accordingly.
+gate_seen "$NOW" >/dev/null 2>&1
+
+# The gate always launches its OWN sibling script. POLLER_BIN is not read
+# from the environment here on purpose (fix round 2, FIX 2): every other
+# value config.sh takes from the environment is data, but this one names a
+# path to EXECUTE, detached, on every stale-state tool call. Honouring an
+# inherited POLLER_BIN would mean a stale `export POLLER_BIN=...` sitting in
+# some shell rc, or a wrapper that loads a project .env, silently turns the
+# gate into "run this arbitrary path". USAGE_GUARD_TEST_POLLER is a separate,
+# unambiguously-named escape hatch that only a test harness would ever set,
+# so tests can still point this at a stub without reopening that hole.
+POLLER_BIN="$HOOK_DIR/usage-poller"
+[ -n "${USAGE_GUARD_TEST_POLLER:-}" ] && POLLER_BIN="$USAGE_GUARD_TEST_POLLER"
+
+# Launches the poller detached when the gate finds no usable state, so
+# recovery is bounded by one tool call instead of waiting on a SessionStart
+# that may never come again for a session already in progress.
+# acquire_lock inside usage-poller makes a redundant launch a no-op, and
+# relaunch_due throttles this so a stretch of stale state cannot spawn one
+# process per tool call. Every stream is discarded and nothing is waited on:
+# a byte reaching the gate's own stdout would be parsed as a hook decision.
+#
+# Invoked as `bash "$POLLER_BIN"`, not run directly: usage-poller depends on
+# carrying the executable bit, which this very branch has already lost once
+# to core.filemode=false (see commit 7425987). A checkout or plugin copy that
+# drops it would make this launch fail Permission denied with the error
+# discarded, silently leaving no poller running with the throttle stamp
+# already spent. Running it through bash makes the launch independent of the
+# file's own permission bits, matching how the SessionStart path already
+# invokes it (through run-hook.cmd, which also always execs via bash).
+relaunch_poller() {
+  relaunch_due "$NOW" || return 0
+  guard_log "gate: relaunching poller"
+  bash "$POLLER_BIN" </dev/null >/dev/null 2>&1 &
+  return 0
+}
+
+STATE=$(read_state)
+if [ "$STATE" = "UNKNOWN" ]; then
+  relaunch_poller
+  exit 0
+fi
+
+set -- $STATE
+PCT="$1"; RESETS="$2"; TS="$3"
+
+AGE=$((NOW - TS))
+if [ "$AGE" -lt 0 ] || [ "$AGE" -gt "$STALE_SECONDS" ]; then
+  relaunch_poller
+fi
+
+ACTION=$(decide "$PCT" "$TOOL" "$NOW" "$TS" "$RESETS")
+
+case "$ACTION" in
+  ALLOW)
+    exit 0
+    ;;
+  DENY_SPAWN)
+    guard_log "deny spawn tool=$TOOL pct=$PCT"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Usage guard: the 5-hour window is %s%% used. Stop starting new subagents and finish with the results you already have. Existing agents are unaffected."}}\n' "$PCT"
+    exit 0
+    ;;
+  FREEZE)
+    # Release two minutes before the hook timeout would fire, so an overrun
+    # leaks one call instead of silently disabling the freeze.
+    DEADLINE=$((NOW + HOOK_TIMEOUT_SECONDS - 120))
+    guard_log "freeze start tool=$TOOL pct=$PCT resets_at=$RESETS"
+    REASON=$(freeze_until "$RESETS" "$DEADLINE")
+    guard_log "freeze end reason=$REASON tool=$TOOL"
+    exit 0
+    ;;
+  WARN)
+    # One throttled advisory, not one per tool call. No permission decision:
+    # this path never denies or holds anything, it only informs. Verified
+    # against a disposable session (task-14 report) that Claude Code accepts
+    # a bare {"systemMessage":...} on PreToolUse, surfaces it, and leaves the
+    # tool call's outcome untouched.
+    if warn_due "$NOW"; then
+      guard_log "warn pct=$PCT"
+      printf '{"systemMessage":"usage-guard: %s%% of the 5-hour window used. Subagent spawns stop at 90%%, work pauses at 95%%."}\n' "$PCT"
+    fi
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac

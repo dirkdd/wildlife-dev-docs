@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"<ROOT>/hooks/usage-gate\"",
+            "shell": "bash",
+            "async": false,
+            "timeout": 19800
+          }
+        ]
+      }
+    ]
+  }
+}

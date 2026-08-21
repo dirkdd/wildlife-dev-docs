@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Zero-dependency test runner. Runs every test/test_*.sh in its own subshell
+# so a test that sets globals cannot leak into the next one.
+
+cd "$(dirname "$0")" || exit 1
+TOTAL=0
+FAILED=0
+
+for f in test_*.sh; do
+  [ -e "$f" ] || continue
+  printf '%s\n' "$f"
+  out=$(bash "$f" 2>&1)
+  printf '%s\n' "$out"
+  t=$(printf '%s' "$out" | grep -c '^  ok   \|^  FAIL ')
+  x=$(printf '%s' "$out" | grep -c '^  FAIL ')
+  TOTAL=$((TOTAL + t))
+  FAILED=$((FAILED + x))
+done
+
+printf '\n%s assertions, %s failed\n' "$TOTAL" "$FAILED"
+[ "$FAILED" -eq 0 ]

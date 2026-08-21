@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Optional statusline shim. Claude Code passes rate_limits to a statusline
+# command and to no hook, so this is the only way to read usage at roughly
+# 30-second freshness. It is ADDITIVE: the poller remains the floor, because a
+# headless -p session renders no statusline at all.
+#
+# Prints exactly one line so the user's statusline still shows something.
+
+PAYLOAD=$(cat 2>/dev/null)
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB="$HOOK_DIR/../lib"
+. "$LIB/config.sh" 2>/dev/null || { printf '\n'; exit 0; }
+POLLER_LIB_ONLY=1 . "$HOOK_DIR/usage-poller" 2>/dev/null || { printf '\n'; exit 0; }
+
+# Anchor on rate_limits before looking for five_hour, and take the FIRST
+# five_hour match rather than the last. A greedy-.* sed pattern binds to the
+# LAST match on a single-line payload, and this stdin comes from Claude Code
+# carrying cwd, session_id, model and other fields we do not control, so an
+# unanchored "five_hour" search can be fooled by a decoy occurrence elsewhere
+# in the payload. Same fix shape as the tool_name extraction in
+# hooks/usage-gate: grep -o returns matches in document order, so head -1
+# takes the first (here, the field directly under rate_limits) instead of
+# whatever a greedy sed would bind last. First trimming to everything from
+# "rate_limits" onward also drops any decoy that appears earlier in the
+# payload, e.g. inside a cwd value.
+RL_TAIL=$(printf '%s' "$PAYLOAD" | tr -d '\n' | grep -o '"rate_limits"[[:space:]]*:[[:space:]]*{.*' | head -1)
+BLOCK=$(printf '%s' "$RL_TAIL" | grep -o '"five_hour"[[:space:]]*:[[:space:]]*{[^}]*}' | head -1 | sed 's/^"five_hour"[[:space:]]*:[[:space:]]*{\(.*\)}$/\1/')
+
+# used_percentage arrives already scaled 0-100 (Claude Code multiplies its
+# internal 0-to-1 fraction before building this payload). Never multiply by
+# 100 here; test/test_statusline.sh pins this with a non-round percentage.
+PCT=$(printf '%s' "$BLOCK" | sed -n 's/.*"used_percentage"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+RESETS=$(printf '%s' "$BLOCK" | sed -n 's/.*"resets_at"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+
+if [ -n "$PCT" ] && [ -n "$RESETS" ]; then
+  write_state_file "$PCT" "$RESETS"
+  printf 'usage %s%%\n' "$PCT"
+  exit 0
+fi
+
+printf '\n'
+exit 0
