@@ -52,8 +52,15 @@ case "$RELAUNCH_THROTTLE" in ''|*[!0-9]*|0?*) RELAUNCH_THROTTLE=60 ;; esac
 
 # How long usage-poller waits without seeing GATE_SEEN_STAMP move before it
 # concludes no session is left to serve and exits. Set comfortably above
-# RELAUNCH_THROTTLE and the widest poll interval so a live gate never trips
-# it by accident.
+# RELAUNCH_THROTTLE and the widest poll interval so it never trips while the
+# gate is actually making tool calls. It DOES trip during a long freeze
+# (freeze_until sits in its own sleep loop, making no tool calls, so the
+# heartbeat stops moving for the whole freeze) and during a single
+# long-running tool call — both while the sensor still matters. This is
+# self-healing rather than a bug: freeze_until releases on the wall clock and
+# resets_at, not on state, so it does not depend on the poller either way,
+# and the next tool call after release finds stale state and relaunches
+# within one call via FIX B above.
 : "${GATE_IDLE_TIMEOUT:=1800}"
 case "$GATE_IDLE_TIMEOUT" in ''|*[!0-9]*|0?*) GATE_IDLE_TIMEOUT=1800 ;; esac
 
@@ -83,7 +90,13 @@ guard_log() {
 stamp_due() {
   local stamp_file="$1" throttle="$2" now="$3"
   local last=""
-  [ -r "$stamp_file" ] && read -r last < "$stamp_file" 2>/dev/null
+  # Bash applies redirections left to right, so 2>/dev/null must come BEFORE
+  # the input redirect: a failing `< "$stamp_file"` aborts before a trailing
+  # 2>/dev/null is ever installed, and the error reaches real stderr despite
+  # the [ -r ] guard above it (which is TOCTOU-only). Confirmed locally:
+  # `read -r x < /nonexistent 2>/dev/null` prints to stderr; ordering the
+  # redirects the other way around does not.
+  [ -r "$stamp_file" ] && read -r last 2>/dev/null < "$stamp_file"
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
   if [ $((now - last)) -lt "$throttle" ]; then
     return 1

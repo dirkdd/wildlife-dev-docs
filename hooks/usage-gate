@@ -37,9 +37,17 @@ NOW=$(date +%s)
 # from a live one and stop probing accordingly.
 gate_seen "$NOW" >/dev/null 2>&1
 
-# Overridable so tests can point this at a harmless stub instead of the real
-# poller (which would otherwise shell out to `claude -p "/usage"`).
-: "${POLLER_BIN:=$HOOK_DIR/usage-poller}"
+# The gate always launches its OWN sibling script. POLLER_BIN is not read
+# from the environment here on purpose (fix round 2, FIX 2): every other
+# value config.sh takes from the environment is data, but this one names a
+# path to EXECUTE, detached, on every stale-state tool call. Honouring an
+# inherited POLLER_BIN would mean a stale `export POLLER_BIN=...` sitting in
+# some shell rc, or a wrapper that loads a project .env, silently turns the
+# gate into "run this arbitrary path". USAGE_GUARD_TEST_POLLER is a separate,
+# unambiguously-named escape hatch that only a test harness would ever set,
+# so tests can still point this at a stub without reopening that hole.
+POLLER_BIN="$HOOK_DIR/usage-poller"
+[ -n "${USAGE_GUARD_TEST_POLLER:-}" ] && POLLER_BIN="$USAGE_GUARD_TEST_POLLER"
 
 # Launches the poller detached when the gate finds no usable state, so
 # recovery is bounded by one tool call instead of waiting on a SessionStart
@@ -48,10 +56,19 @@ gate_seen "$NOW" >/dev/null 2>&1
 # relaunch_due throttles this so a stretch of stale state cannot spawn one
 # process per tool call. Every stream is discarded and nothing is waited on:
 # a byte reaching the gate's own stdout would be parsed as a hook decision.
+#
+# Invoked as `bash "$POLLER_BIN"`, not run directly: usage-poller depends on
+# carrying the executable bit, which this very branch has already lost once
+# to core.filemode=false (see commit 7425987). A checkout or plugin copy that
+# drops it would make this launch fail Permission denied with the error
+# discarded, silently leaving no poller running with the throttle stamp
+# already spent. Running it through bash makes the launch independent of the
+# file's own permission bits, matching how the SessionStart path already
+# invokes it (through run-hook.cmd, which also always execs via bash).
 relaunch_poller() {
   relaunch_due "$NOW" || return 0
   guard_log "gate: relaunching poller"
-  "$POLLER_BIN" </dev/null >/dev/null 2>&1 &
+  bash "$POLLER_BIN" </dev/null >/dev/null 2>&1 &
   return 0
 }
 

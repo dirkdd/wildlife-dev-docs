@@ -12,13 +12,19 @@ export RESET_BUFFER=0
 # it at a harmless stub for the whole file so nothing here ever shells out to
 # the real poller, which would in turn shell out to `claude -p "/usage"`.
 # The stub just appends a line to a marker file so tests can count launches.
+#
+# Fix round 2, FIX 2: the gate no longer honours a generic POLLER_BIN from
+# the environment (that was itself the defect: an inherited path is data to
+# every other config value but this one names something to EXECUTE). The
+# test seam is now the unambiguously-named USAGE_GUARD_TEST_POLLER, which no
+# real shell rc or .env would ever set by accident.
 POLLER_MARKER="$GUARD_DIR/poller-launches"
-export POLLER_BIN="$GUARD_DIR/stub-poller"
-cat > "$POLLER_BIN" <<STUB
+export USAGE_GUARD_TEST_POLLER="$GUARD_DIR/stub-poller"
+cat > "$USAGE_GUARD_TEST_POLLER" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$\$" >> "$POLLER_MARKER"
 STUB
-chmod +x "$POLLER_BIN"
+chmod +x "$USAGE_GUARD_TEST_POLLER"
 launch_count() { [ -f "$POLLER_MARKER" ] && wc -l < "$POLLER_MARKER" | tr -d ' ' || printf '0'; }
 wait_for_launch() {
   # The gate backgrounds the stub and never waits on it, so give it a short
@@ -127,3 +133,39 @@ out=$(payload Bash | bash "$ROOT/hooks/usage-gate")
 sleep 0.3
 assert_eq "$out" "" "throttled relaunch still prints nothing"
 assert_eq "$(launch_count)" "1" "a second stale/missing call within RELAUNCH_THROTTLE does not relaunch again"
+
+# --- Fix round 2 ---
+
+# FIX 1: the relaunch must not depend on the poller script's own executable
+# bit. A stub written WITHOUT chmod +x proves the gate runs it via `bash`
+# rather than executing it directly.
+NOEXEC_MARKER="$GUARD_DIR/noexec-launches"
+NOEXEC_POLLER="$GUARD_DIR/stub-poller-noexec"
+cat > "$NOEXEC_POLLER" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$\$" >> "$NOEXEC_MARKER"
+STUB
+# Deliberately no chmod +x.
+rm -f "$STATE_FILE" "$GUARD_DIR/last-relaunch" "$NOEXEC_MARKER"
+out=$(payload Bash | USAGE_GUARD_TEST_POLLER="$NOEXEC_POLLER" bash "$ROOT/hooks/usage-gate")
+tries=0
+while [ ! -s "$NOEXEC_MARKER" ] && [ "$tries" -lt 20 ]; do sleep 0.1; tries=$((tries + 1)); done
+assert_eq "$out" "" "a non-executable poller stub still prints nothing on the gate's stdout"
+assert_eq "$([ -s "$NOEXEC_MARKER" ] && echo ran || echo did-not-run)" "ran" "the relaunch runs the poller through bash, independent of its executable bit"
+
+# FIX 2: a POLLER_BIN inherited from the environment must be ignored. Point
+# it at a decoy that would prove itself if executed, then confirm the decoy
+# never ran while the legitimate USAGE_GUARD_TEST_POLLER stub still did.
+DECOY_MARKER="$GUARD_DIR/decoy-launches"
+DECOY_POLLER="$GUARD_DIR/decoy-poller"
+cat > "$DECOY_POLLER" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$\$" >> "$DECOY_MARKER"
+STUB
+chmod +x "$DECOY_POLLER"
+rm -f "$STATE_FILE" "$GUARD_DIR/last-relaunch" "$POLLER_MARKER" "$DECOY_MARKER"
+out=$(payload Bash | POLLER_BIN="$DECOY_POLLER" bash "$ROOT/hooks/usage-gate")
+wait_for_launch
+assert_eq "$out" "" "an inherited POLLER_BIN still prints nothing on the gate's stdout"
+assert_eq "$([ -e "$DECOY_MARKER" ] && echo ran || echo did-not-run)" "did-not-run" "an inherited POLLER_BIN is ignored, not executed"
+assert_eq "$(launch_count)" "1" "the gate still launches its own poller (via USAGE_GUARD_TEST_POLLER) rather than the decoy"

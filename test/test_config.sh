@@ -31,15 +31,28 @@ cat /tmp/ug_cfg_a /tmp/ug_cfg_b >/dev/null 2>&1
   assert_eq "$GATE_SEEN_STAMP" "/tmp/ug-cfg-c/gate-seen" "gate-seen stamp sits under the guard dir by default"
   assert_eq "$GATE_IDLE_TIMEOUT" "1800" "gate idle timeout defaults to 1800"
 
-  # A malformed RELAUNCH_THROTTLE (leading zero parses as octal) must not
-  # crash the arithmetic in stamp_due, same class of guard as
-  # HOOK_TIMEOUT_SECONDS and PROBE_TIMEOUT above.
-  RELAUNCH_THROTTLE=0100
-  case "$RELAUNCH_THROTTLE" in ''|*[!0-9]*|0?*) RELAUNCH_THROTTLE=60 ;; esac
-  assert_eq "$RELAUNCH_THROTTLE" "60" "a leading-zero throttle value falls back to the default"
-
   printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_c )
 cat /tmp/ug_cfg_c >/dev/null 2>&1
+
+# Fix round 2, FIX 5: the previous version of this assertion ran a COPY of
+# the screening case statement inline and then asserted the copy against
+# itself, which would pass even with the real screen in lib/config.sh
+# deleted. Export the malformed value and re-source config.sh for real, same
+# as the "environment override wins" block above, so this exercises the
+# shipped screen rather than a stand-in for it. Same class of guard as
+# HOOK_TIMEOUT_SECONDS and PROBE_TIMEOUT (leading zero parses as octal in
+# bash arithmetic).
+( export GUARD_DIR=/tmp/ug-cfg-e RELAUNCH_THROTTLE=0100
+  . "$(dirname "$0")/../lib/config.sh"
+  assert_eq "$RELAUNCH_THROTTLE" "60" "a leading-zero RELAUNCH_THROTTLE falls back to the default"
+  printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_e )
+cat /tmp/ug_cfg_e >/dev/null 2>&1
+
+( export GUARD_DIR=/tmp/ug-cfg-f GATE_IDLE_TIMEOUT=0900
+  . "$(dirname "$0")/../lib/config.sh"
+  assert_eq "$GATE_IDLE_TIMEOUT" "1800" "a leading-zero GATE_IDLE_TIMEOUT falls back to the default"
+  printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_f )
+cat /tmp/ug_cfg_f >/dev/null 2>&1
 
 ( export GUARD_DIR=/tmp/ug-cfg-d RELAUNCH_THROTTLE=60
   rm -rf "$GUARD_DIR"; mkdir -p "$GUARD_DIR"
