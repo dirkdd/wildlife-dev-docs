@@ -17,7 +17,21 @@ permission outcomes and are unaffected by any of this.
 
 ## Install
 
-Clone the repo and wire the hooks directly:
+### Marketplace (recommended)
+
+```
+/plugin marketplace add dirkdd/wildlife-dev-docs
+/plugin install usage-guard@wildlife-ai
+```
+
+This is the primary install path. The loader resolves `${CLAUDE_PLUGIN_ROOT}` itself
+and reads the `PreToolUse` and `SessionStart` hooks, timeout included, straight out of
+this plugin's `hooks/hooks.json`, so none of the manual caveats below apply to it.
+
+### Manual: clone and wire the hooks directly
+
+A secondary path for running a checkout outside the marketplace, for example a fork or
+a pre-release clone:
 
 ```bash
 git clone <this-repo-url> ~/.claude/usage-guard-src
@@ -27,28 +41,26 @@ Then add the `PreToolUse` and `SessionStart` hooks from `hooks/hooks.json` in th
 to your `~/.claude/settings.json`. `hooks/run-hook.cmd` is the entry point on Windows;
 `hooks/usage-gate` and `hooks/usage-poller` are invoked directly on macOS and Linux.
 
-Copy the `PreToolUse` hook's `"timeout": 19800` field along with the rest of the entry.
-It is easy to omit when hand-copying, and nothing catches the omission: a hook with no
-`timeout` field gets Claude Code's own default, which is far shorter than the 5.4-hour
-deadline `HOOK_TIMEOUT_SECONDS` in `lib/config.sh` computes the freeze against. With the
-two out of sync, Claude Code kills every freeze early, the tool call it was holding
-proceeds unguarded, and nothing logs that this happened. If you change the timeout from
-19800, set `HOOK_TIMEOUT_SECONDS` to the same value or the freeze silently stops holding.
+On this manual path, copy the `PreToolUse` hook's `"timeout": 19800` field along with
+the rest of the entry. It is easy to omit when hand-copying, and nothing catches the
+omission: a hook with no `timeout` field gets Claude Code's own default, which is far
+shorter than the 5.4-hour deadline `HOOK_TIMEOUT_SECONDS` in `lib/config.sh` computes
+the freeze against. With the two out of sync, Claude Code kills every freeze early, the
+tool call it was holding proceeds unguarded, and nothing logs that this happened. If
+you change the timeout from 19800, set `HOOK_TIMEOUT_SECONDS` to the same value or the
+freeze silently stops holding. A marketplace install (above) does not carry this risk:
+the loader reads `hooks/hooks.json` directly, timeout included, so there is nothing to
+hand-copy out of sync.
 
 `hooks/hooks.json` writes each command as `"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" ...`.
-That placeholder is how Claude Code's own plugin loader resolves a real, marketplace-
-installed plugin's path, and this repo has no marketplace manifest for that loader to
-use (see below), so it is unconfirmed whether `${CLAUDE_PLUGIN_ROOT}` resolves at all for
-hooks hand-copied into `settings.json` this way; it has not been verified against a live
-session. Do not rely on it. The safe option is to substitute the literal absolute path
+For a marketplace install, Claude Code's own plugin loader substitutes that placeholder
+automatically. On the manual path, the hook entry is hand-copied into `settings.json`
+outside the loader, so whether `${CLAUDE_PLUGIN_ROOT}` resolves there at all is
+unconfirmed; it has not been verified against a live session. Do not rely on it for a
+manual install. The safe option on that path is to substitute the literal absolute path
 to your clone in place of `${CLAUDE_PLUGIN_ROOT}` in the command string itself, for
 example `"/home/you/.claude/usage-guard-src/hooks/run-hook.cmd"`, so the hook does not
 depend on a variable that may never resolve.
-
-`.claude-plugin/plugin.json` marks this repo as a Claude Code plugin, but it does not
-carry a `marketplace.json` manifest, so `/plugin marketplace add` has no listing to
-find here yet. Installing via the plugin marketplace is not available in this build;
-use the clone-and-wire path above.
 
 The plugin only touches `~/.claude/usage-guard/` (state, lock, and log files) and the
 two hook entries above. It does not modify any other settings.
@@ -251,9 +263,8 @@ process runs inside a wrapper process for as long as the freeze lasts.
 
 End-to-end verification against real `claude -p` sessions, via `test/e2e/run-e2e` and a
 fabricated state file (`test/e2e/settings-e2e.json`, `test/e2e/noop-poller`). The checks
-below are the full detail; the working report they were drafted from lived outside this
-repo (under `.superpowers/`, which is gitignored here) and is not something a clone of
-this repo carries with it.
+below are the full detail; the working report they were drafted from is preserved as a
+historical record at [`docs/evidence-e2e-verification.md`](docs/evidence-e2e-verification.md).
 
 **Check 1, below threshold, gate invisible.** `used_percentage=10`. Captured stdout:
 model reported `alive`, elapsed 19s (target: roughly 5-15s; slightly over, plausibly
@@ -273,7 +284,8 @@ whole design: a tool call held by the gate reaches the model with a clean result
 sign it was paused.
 
 **Check 3, drain band.** `used_percentage=92`. Evidence is `guard.log` only (no stdout
-was captured for this check; see the incident note in the task-11 report):
+was captured for this check; see the incident note in
+[`docs/evidence-e2e-verification.md`](docs/evidence-e2e-verification.md)):
 ```
 deny spawn tool=Agent pct=92
 ```
@@ -299,8 +311,8 @@ live count.
 
 What happens when a freeze catches subagents already running, via
 `test/e2e/run-fanout` (same fabricated-state mechanism as above). As with "Verified
-behavior" above, the checks below are the full detail; the working report is outside
-this repo and not something a clone carries with it.
+behavior" above, the checks below are the full detail; the working report is preserved
+as a historical record at [`docs/evidence-fanout-freeze.md`](docs/evidence-fanout-freeze.md).
 
 A parent session launched three `general-purpose` agents in parallel, each running
 `bash -c "sleep 45; echo done"`. State started at `used_percentage=10` (fan-out allowed)
