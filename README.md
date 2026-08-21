@@ -81,11 +81,11 @@ export CLAUDE_USAGE_GUARD_OFF=1
 
 Everything is under `~/.claude/usage-guard/` (overridable via `GUARD_DIR`):
 
-- `state.json` — the poller's last reading: usage percentage, window reset time, and
+- `state.json`: the poller's last reading, usage percentage, window reset time, and
   the timestamp it was written.
-- `guard.log` — an append-only line per gate decision that was not a plain ALLOW
+- `guard.log`: an append-only line per gate decision that was not a plain ALLOW
   (relaunches, drain denials, freeze start/end), plus poller lifecycle lines.
-- `guard.lock`, `last-relaunch`, `gate-seen` — internal coordination files. Safe to
+- `guard.lock`, `last-relaunch`, `gate-seen`: internal coordination files. Safe to
   delete while no session is frozen; the guard fails open and recreates them.
 
 ## Configuring thresholds
@@ -112,7 +112,7 @@ Measured on Windows with Git Bash: the gate adds roughly 395-400 ms to every too
 call. Git Bash forks a process for nearly every line the gate scripts execute, and
 process creation is expensive on this platform; Linux and macOS are expected to be far
 cheaper since a fork there costs a fraction of the Windows figure, but only the Windows
-number above has actually been measured. An earlier estimate of 73 ms came from a
+number above has been measured. An earlier estimate of 73 ms came from a
 simplified probe that did not exercise the real gate script and should not be
 trusted.
 
@@ -161,12 +161,12 @@ End-to-end verification against real `claude -p` sessions, via `test/e2e/run-e2e
 fabricated state file (`test/e2e/settings-e2e.json`, `test/e2e/noop-poller`). Full detail
 in `.superpowers/sdd/2026-08-20-usage-guard/task-11-report.md`.
 
-**Check 1 — below threshold, gate invisible.** `used_percentage=10`. Captured stdout:
+**Check 1, below threshold, gate invisible.** `used_percentage=10`. Captured stdout:
 model reported `alive`, elapsed 19s (target: roughly 5-15s; slightly over, plausibly
 session-startup variance, not a gate artifact). Confirms the gate is silent at 10%
 usage, below the drain threshold (`THRESHOLD_DRAIN=90`).
 
-**Check 2 — freeze then release.** `used_percentage=99`, reset fabricated 90s out. Rerun
+**Check 2, freeze then release.** `used_percentage=99`, reset fabricated 90s out. Rerun
 in isolation (the run this section's evidence comes from) captured full stdout: model
 reported `thawed` with no error text, elapsed 181s. `guard.log`:
 ```
@@ -178,14 +178,14 @@ freeze end reason=RESET tool=Bash
 whole design: a tool call held by the gate reaches the model with a clean result and no
 sign it was paused.
 
-**Check 3 — drain band.** `used_percentage=92`. Evidence is `guard.log` only (no stdout
-was captured for this check — see the incident note in the task-11 report):
+**Check 3, drain band.** `used_percentage=92`. Evidence is `guard.log` only (no stdout
+was captured for this check; see the incident note in the task-11 report):
 ```
 deny spawn tool=Agent pct=92
 ```
 No `freeze start` line appears, correctly, since 92 is below the freeze threshold (95).
 
-**Check 4 — escape hatch.** `used_percentage=99`, `DISABLE` file touched 25s after start.
+**Check 4, escape hatch.** `used_percentage=99`, `DISABLE` file touched 25s after start.
 Evidence is `guard.log` only (no stdout captured):
 ```
 freeze start tool=Bash pct=99 resets_at=...
@@ -237,7 +237,7 @@ together roughly 180s later, matching Check 2's freeze/release timing.
 
 **Process count during the freeze.** Correlated by start time against the two
 `freeze start` log lines (02:49:31Z / 02:49:32Z UTC), four raw `bash` processes
-appeared at that moment, as two parent/child pairs — one pair per concurrently held
+appeared at that moment, as two parent/child pairs, one pair per concurrently held
 `PreToolUse` hook invocation (Claude Code's hook runner wraps the configured `bash
 "<ROOT>/hooks/usage-gate"` command in its own shell, so each held hook shows up as a
 wrapper + the actual gate process). This count is confirmed, not assumed, from PID and
@@ -249,7 +249,7 @@ signal on its own; it is reported here only so it isn't silently omitted.
 **Outcome: all three agents finished successfully, but the freeze itself only caught
 two of their tool calls.** AGENT-3's call landed and completed before the freeze began
 and was never held at all, so this run confirms freeze/release survival for the calls
-that actually froze concurrently, not that a freeze catching all three simultaneously
+that froze concurrently, not that a freeze catching all three simultaneously
 would behave the same way; that stronger claim is unconfirmed by this run and would
 need a design (e.g. staggered `sleep` starts) that reliably lands every agent's first
 tool call after the freeze begins.
