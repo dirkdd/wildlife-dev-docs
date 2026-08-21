@@ -9,7 +9,7 @@ window resets, then lets it through with no error and no lost work.
 
 ## Install
 
-**Option A: clone and wire the hooks directly.**
+Clone the repo and wire the hooks directly:
 
 ```bash
 git clone <this-repo-url> ~/.claude/usage-guard-src
@@ -20,18 +20,13 @@ to your `~/.claude/settings.json`, pointing `${CLAUDE_PLUGIN_ROOT}` at the clone
 (`~/.claude/usage-guard-src`). `hooks/run-hook.cmd` is the entry point on Windows;
 `hooks/usage-gate` and `hooks/usage-poller` are invoked directly on macOS and Linux.
 
-**Option B: add as a plugin marketplace.**
+`.claude-plugin/plugin.json` marks this repo as a Claude Code plugin, but it does not
+carry a `marketplace.json` manifest, so `/plugin marketplace add` has no listing to
+find here yet. Installing via the plugin marketplace is not available in this build;
+use the clone-and-wire path above.
 
-This repo's `.claude-plugin/plugin.json` makes it installable as a Claude Code plugin
-directly:
-
-```
-/plugin marketplace add <this-repo-url>
-/plugin install usage-guard
-```
-
-Either way, the plugin only touches `~/.claude/usage-guard/` (state, lock, and log
-files) and the two hook entries above. It does not modify any other settings.
+The plugin only touches `~/.claude/usage-guard/` (state, lock, and log files) and the
+two hook entries above. It does not modify any other settings.
 
 ## Escape hatches
 
@@ -106,6 +101,9 @@ sessions inherit:
 | `RELAUNCH_THROTTLE` | `60` | Minimum seconds between the gate's attempts to relaunch a missing poller. |
 | `GATE_IDLE_TIMEOUT` | `1800` | Seconds without a tool call before the poller assumes no session is left to serve and exits. |
 
+The file paths under "Where state lives" above (`STATE_FILE`, `DISABLE_FILE`, `LOCK_FILE`,
+`LOG_FILE`) are also individually overridable; in practice `GUARD_DIR` alone covers them.
+
 ## Cost
 
 Measured on Windows with Git Bash: the gate adds roughly 395-400 ms to every tool
@@ -129,12 +127,11 @@ process runs inside a wrapper process for as long as the freeze lasts.
   length, since a single such test takes six hours.
 - **Esc against a sleeping hook is untested.** What happens if a user presses Esc
   while a tool call is frozen has not been verified.
-- **The plugin reads undocumented internals of the `claude` binary.** Specifically
-  the `cachedUsageUtilization` key in `~/.claude.json` and the shape of the
-  statusline `rate_limits` payload. Both have changed more than once in a single
-  week during this project's development. Every JSON path is validated on read, and
-  a mismatch makes the guard fail open (treat state as unknown, allow the call)
-  rather than error.
+- **The plugin reads an undocumented internal of the `claude` binary.** Specifically
+  the `cachedUsageUtilization.utilization.five_hour` block in `~/.claude.json`,
+  which has changed more than once in a single week during this project's
+  development. Every JSON path is validated on read, and a mismatch makes the guard
+  fail open (treat state as unknown, allow the call) rather than error.
 - **The poller's lock-reclaim race is bounded, not eliminated.** A rename is atomic
   only against whatever currently occupies the lock path; there is no
   compare-and-swap against the directory state a racing poller inspected earlier,
