@@ -76,3 +76,59 @@ assert_eq "$?" "0" "a lock with a missing pid file is treated as stale and recla
 rm -rf "$LOCK_FILE"; mkdir -p "$LOCK_FILE"; printf '%s\n' "$$" > "$LOCK_FILE/pid"
 rm -rf "$LOCK_FILE"
 assert_eq "$([ -e "$LOCK_FILE" ] && echo present || echo gone)" "gone" "rm -rf removes a lock directory that contains a pid file"
+
+# --- Fix round 2 ---
+
+# Simulate the pid write failing. acquire_lock is a shell function sourced
+# into THIS shell (POLLER_LIB_ONLY dot-sources it above), and bash resolves
+# a shell function ahead of the printf builtin, so shadowing printf here
+# intercepts the exact `printf ... > "$LOCK_FILE/pid"` call inside
+# acquire_lock. Redirection is set up by the shell before the command runs,
+# so "$LOCK_FILE/pid" still gets created/truncated as normal; only the
+# reported exit status is forced to 1. That is precisely the condition
+# acquire_lock's `if printf ... ; then` branches on, so this is a faithful
+# simulation of "the write failed" without needing OS-level permission
+# tricks (which are unreliable for directories on this Windows/Git Bash
+# machine). The shadow is installed and removed immediately around the one
+# call it targets so it cannot affect any other assertion.
+printf() { command printf "$@"; return 1; }
+rm -rf "$LOCK_FILE"
+acquire_lock
+pidwrite_status=$?
+unset -f printf
+assert_eq "$pidwrite_status" "1" "acquire_lock returns 1 when the pid write fails"
+assert_eq "$([ -e "$LOCK_FILE" ] && echo present || echo gone)" "gone" "acquire_lock leaves no lock directory behind when the pid write fails"
+
+# After a successful acquire, the pid file holds $$ and a second acquire in
+# the same shell fails (re-asserted here under the fix-round-2 code path,
+# distinct from the pre-existing assertions above).
+rm -rf "$LOCK_FILE"
+acquire_lock
+assert_eq "$?" "0" "fix round 2: acquire_lock succeeds against a fresh GUARD_DIR"
+assert_eq "$(cat "$LOCK_FILE/pid" 2>/dev/null)" "$$" "fix round 2: pid file holds the current pid after a successful acquire"
+acquire_lock
+assert_eq "$?" "1" "fix round 2: a second acquire_lock in the same shell fails while the lock is held"
+
+# A stale lock with a dead pid is still reclaimed after the round-2 rewrite
+# (mv-based clear, retry-mkdir loop). 4194304 is one past Linux's default
+# pid_max (4194303) and out of range for the Windows/macOS pid spaces this
+# also runs on, so it cannot be a live process here - same dead pid used by
+# the pre-existing stale-reclaim assertion above.
+rm -rf "$LOCK_FILE"; mkdir -p "$LOCK_FILE"
+printf '4194304\n' > "$LOCK_FILE/pid"
+acquire_lock
+assert_eq "$?" "0" "fix round 2: a stale lock with a dead pid is still reclaimed"
+assert_eq "$(cat "$LOCK_FILE/pid" 2>/dev/null)" "$$" "fix round 2: reclaiming a stale lock rewrites the pid file to the current pid"
+
+# own_lock: true only when the pid file names this process.
+rm -rf "$LOCK_FILE"; mkdir -p "$LOCK_FILE"
+printf '%s\n' "$$" > "$LOCK_FILE/pid"
+own_lock
+assert_eq "$?" "0" "own_lock returns 0 when the pid file holds the current pid"
+
+rm -rf "$LOCK_FILE"; mkdir -p "$LOCK_FILE"
+printf '4194304\n' > "$LOCK_FILE/pid"
+own_lock
+assert_eq "$?" "1" "own_lock returns 1 when the pid file holds a different pid"
+
+rm -rf "$LOCK_FILE"

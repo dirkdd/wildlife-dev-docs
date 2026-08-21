@@ -104,26 +104,66 @@ poll_once() {
 # is never recovered if the owner dies without running its trap (SIGKILL,
 # power loss). So the lock directory carries a pid file, and a lock whose
 # owner is no longer alive is treated as stale and reclaimed.
+#
+# Reclaiming is NOT race-free: read-owner, decide-stale, clear, mkdir is
+# several steps, and two racers can both decide the same owner is dead. Using
+# `mv` (atomic rename) to clear the stale directory, instead of `rm -rf`,
+# means a racer can only ever clobber whatever is CURRENTLY at $LOCK_FILE
+# with a single atomic op, but that does not make the sequence safe: mv does
+# not check that the directory it moves is still the one this racer
+# inspected, so a second racer's mv can just as easily rename aside a first
+# racer's brand new live lock. So after a reclaim, this function never
+# assumes it now owns the lock - it loops back and retries a plain mkdir
+# from the top, same as a first-time acquire. That mkdir either wins outright
+# (nobody else got there first) or fails because a live owner (possibly a
+# racer that reclaimed a moment earlier) is now present, in which case this
+# call correctly reports the lock as taken. This narrows the reclaim race
+# window; it does not close it. Closing it is main_loop's job: see own_lock,
+# which makes any double-acquire self-correct within one iteration instead
+# of running two pollers indefinitely.
 acquire_lock() {
-  if mkdir "$LOCK_FILE" 2>/dev/null; then
-    printf '%s\n' "$$" > "$LOCK_FILE/pid" 2>/dev/null
-    return 0
-  fi
+  local owner attempts=0
 
+  while :; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -gt 10 ]; then
+      guard_log "poll: acquire_lock gave up after $attempts attempts (contended)"
+      return 1
+    fi
+
+    if mkdir "$LOCK_FILE" 2>/dev/null; then
+      if printf '%s\n' "$$" > "$LOCK_FILE/pid" 2>/dev/null; then
+        return 0
+      fi
+      # Could not record ownership: don't hold a lock we can't prove we own.
+      guard_log "poll: could not write pid file, releasing lock"
+      rm -rf "$LOCK_FILE" 2>/dev/null
+      return 1
+    fi
+
+    owner=$(cat "$LOCK_FILE/pid" 2>/dev/null)
+    case "$owner" in ''|*[!0-9]*) owner="" ;; esac
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+      return 1
+    fi
+
+    guard_log "poll: reclaiming stale lock from pid ${owner:-unknown}"
+    if mv "$LOCK_FILE" "$LOCK_FILE.stale.$$" 2>/dev/null; then
+      rm -rf "$LOCK_FILE.stale.$$" 2>/dev/null
+    fi
+    # Do not assume the reclaim made us the owner. Loop back to the top and
+    # retry mkdir like a fresh acquire.
+  done
+}
+
+# True only when the pid file under $LOCK_FILE names this process. Used by
+# main_loop to detect that a racing reclaim took the lock out from under it,
+# so a transient double-acquire self-corrects within one iteration instead
+# of two pollers running forever.
+own_lock() {
   local owner
   owner=$(cat "$LOCK_FILE/pid" 2>/dev/null)
-  case "$owner" in ''|*[!0-9]*) owner="" ;; esac
-  if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
-    return 1
-  fi
-
-  guard_log "poll: reclaiming stale lock from pid ${owner:-unknown}"
-  rm -rf "$LOCK_FILE" 2>/dev/null
-  if mkdir "$LOCK_FILE" 2>/dev/null; then
-    printf '%s\n' "$$" > "$LOCK_FILE/pid" 2>/dev/null
-    return 0
-  fi
-  return 1
+  [ -n "$owner" ] && [ "$owner" = "$$" ]
 }
 
 # Lockfile singleton.
@@ -133,10 +173,17 @@ main_loop() {
     exit 0
   fi
   # The lock directory now holds a pid file, so it is never empty: rmdir
-  # would fail and leave the lock stuck. rm -rf is required.
-  trap 'rm -rf "$LOCK_FILE" 2>/dev/null' EXIT INT TERM
+  # would fail and leave the lock stuck. rm -rf is required. Only remove it
+  # if we still own it: if a racing reclaim already took it (see own_lock),
+  # unconditionally removing it here would delete the new owner's live lock
+  # out from under them.
+  trap 'own_lock && rm -rf "$LOCK_FILE" 2>/dev/null; :' EXIT INT TERM
 
   while :; do
+    if ! own_lock; then
+      guard_log "poll: lost lock, exiting"
+      exit 0
+    fi
     if guard_disabled; then sleep 60; continue; fi
     local pct
     pct=$(poll_once)
