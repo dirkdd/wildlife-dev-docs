@@ -54,6 +54,33 @@ cat /tmp/ug_cfg_e >/dev/null 2>&1
   printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_f )
 cat /tmp/ug_cfg_f >/dev/null 2>&1
 
+# Final fix wave, FIX 2: SLEEP_INCREMENT is the one value in this group
+# whose bad value does not fail open (`sleep 0` / `sleep foo` spins
+# freeze_until at full CPU instead of yielding a call decision), so it gets
+# the same real-resource screening as RELAUNCH_THROTTLE and
+# GATE_IDLE_TIMEOUT above, plus an explicit reject of bare 0, which the
+# shared leading-zero pattern alone does not catch.
+( export GUARD_DIR=/tmp/ug-cfg-g SLEEP_INCREMENT=foo
+  . "$(dirname "$0")/../lib/config.sh"
+  assert_eq "$SLEEP_INCREMENT" "20" "a non-numeric SLEEP_INCREMENT falls back to the default"
+  printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_g )
+cat /tmp/ug_cfg_g >/dev/null 2>&1
+
+( export GUARD_DIR=/tmp/ug-cfg-h SLEEP_INCREMENT=0
+  . "$(dirname "$0")/../lib/config.sh"
+  assert_eq "$SLEEP_INCREMENT" "20" "a bare-zero SLEEP_INCREMENT falls back to the default, since 0 is the spin case"
+  printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_h )
+cat /tmp/ug_cfg_h >/dev/null 2>&1
+
+# STALE_SECONDS: an unscreened bad value does not fail open either. It
+# silently disables the age check in decide.sh, leaving old, high-pct state
+# readings free to keep driving FREEZE instead of being discarded.
+( export GUARD_DIR=/tmp/ug-cfg-i STALE_SECONDS=0100
+  . "$(dirname "$0")/../lib/config.sh"
+  assert_eq "$STALE_SECONDS" "1200" "a leading-zero STALE_SECONDS falls back to the default"
+  printf '%s %s\n' "$ASSERT_TOTAL" "$ASSERT_FAILED" > /tmp/ug_cfg_i )
+cat /tmp/ug_cfg_i >/dev/null 2>&1
+
 ( export GUARD_DIR=/tmp/ug-cfg-d RELAUNCH_THROTTLE=60
   rm -rf "$GUARD_DIR"; mkdir -p "$GUARD_DIR"
   . "$(dirname "$0")/../lib/config.sh"

@@ -14,6 +14,40 @@
 : "${RESET_BUFFER:=60}"
 : "${SLEEP_INCREMENT:=20}"
 
+# STALE_SECONDS feeds a bash arithmetic comparison in decide.sh
+# (`age -gt STALE_SECONDS`) that exists to discard old state.json readings.
+# An unscreened bad value does not fail open here: `[ -gt ]` against a
+# non-numeric operand errors and reads as false, so the staleness check
+# silently never trips and an old, high-pct reading keeps driving FREEZE
+# decisions indefinitely instead of being discarded. Screened the same way
+# as the other bash-arithmetic consumers in this file.
+case "$STALE_SECONDS" in ''|*[!0-9]*|0?*) STALE_SECONDS=1200 ;; esac
+
+# SLEEP_INCREMENT is the one value in this group whose bad value does not
+# fail open: freeze.sh loops `sleep "$SLEEP_INCREMENT"` for up to 5.4 hours,
+# and `sleep 0` or `sleep foo` returns immediately, turning that loop into a
+# tight spin that forks `date` at full CPU for the whole freeze. The usual
+# digit screen is not enough here: 0 itself, not just a non-numeric value,
+# is the spin case, so it is rejected explicitly alongside the leading-zero
+# and non-digit arms the other values use.
+case "$SLEEP_INCREMENT" in ''|*[!0-9]*|0?*|0) SLEEP_INCREMENT=20 ;; esac
+
+# THRESHOLD_DRAIN, THRESHOLD_FREEZE and THRESHOLD_WARN are deliberately left
+# unscreened. Each only ever feeds `[ "$pct" -ge "$THRESHOLD_X" ]` in
+# decide.sh; a non-numeric value makes that comparison error and read as
+# false, so a bad threshold just means that band's action (FREEZE,
+# DENY_SPAWN, or WARN) never fires. That is already the fail-open direction
+# this whole system is built around, so no extra screen changes the outcome.
+#
+# RESET_BUFFER is also left unscreened. It only feeds
+# `target=$((resets_at + RESET_BUFFER))` in freeze.sh; a bad value makes
+# that arithmetic expansion error, target stays unset, and the `now -ge
+# target` early-release check below it errors the same way and reads as
+# false. The loop then simply runs to `deadline`, which freeze.sh computes
+# independently and which is unaffected by RESET_BUFFER, so a bad value can
+# only make a freeze last as long as the pre-existing hard deadline already
+# allows, never longer or unbounded.
+
 # One throttled advisory per window, not one per tool call. Screened the same
 # way as the other bash-arithmetic consumers above (leading zero reads as
 # octal; any other non-digit breaks the comparison outright).
