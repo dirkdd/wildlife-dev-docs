@@ -1,3 +1,4 @@
 test/tmp/
+test/e2e/tmp/
 *.log
 .superpowers/
