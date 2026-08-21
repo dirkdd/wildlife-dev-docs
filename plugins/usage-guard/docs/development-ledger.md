@@ -1,0 +1,273 @@
+# SDD ledger — plan: C:/Users/dirkd/OneDrive/Desktop/GitHub/wildlife-workspace-meta/docs/superpowers/plans/2026-08-20-usage-guard.md
+
+Spec: C:/Users/dirkd/OneDrive/Desktop/GitHub/wildlife-workspace-meta/docs/superpowers/specs/2026-08-20-usage-guard-design.md (read, reachable)
+Implementation repo: C:/Users/dirkd/OneDrive/Desktop/GitHub/usage-guard (created by Task 1)
+Budget at start: session 49%, week 36%, window resets Aug 20 4:40pm PT
+
+## Pre-flight scan
+
+### Cross-task pairs sharing a file or interface
+
+| Tasks | Produces / consumes | Finding |
+|---|---|---|
+| T2 -> T8 | `lib/config.sh` written by T2, appended by T8 (`HOOK_TIMEOUT_SECONDS`) | Clean. T8 appends before `guard_log`, which T2 defines last. T2's test asserts only its own defaults, so a new variable cannot break it. |
+| T3 -> T8 | `read_state` returns `<pct> <resets> <ts>` or `UNKNOWN` | Clean. T8 consumes exactly that shape and branches on `UNKNOWN` first. |
+| T4 -> T6, T8, T9 | `guard_disabled` returns 0 to stand down | Clean. All three source `escape.sh` before use. |
+| T5 -> T8 | `decide(pct, tool, now, ts)` returns ALLOW/DENY_SPAWN/FREEZE | Clean. T8's case statement covers all three plus a default. |
+| T6 -> T8 | `freeze_until(resets_at, deadline)` echoes RESET/ESCAPE/DEADLINE | Clean. T8 captures the reason into the log only. |
+| T7 -> T9 | `iso_to_epoch(iso)` returns epoch or empty | Clean. T9 treats empty as a skip. |
+| T9 -> T3 | `write_state_file` output parsed by `read_state` | Clean. Field names match; T9's test asserts the round trip explicitly. |
+| T8 <-> T10 | `HOOK_TIMEOUT_SECONDS` 19800 vs `hooks.json` `timeout` 19800 | Coupled by value. The plan states the coupling in T10 step 2. Clean, but fragile: flagged for the final review. |
+| T11, T12, T13 | All three write `README.md`; only T13 lists it as Create | **CONFLICT.** T11 step 6 and T12 step 4 append to a file T13 creates. |
+
+### Per-task internal consistency
+
+| Task | Finding |
+|---|---|
+| T1 | Clean. Runner counts ok/FAIL lines; assert helpers emit exactly those prefixes. |
+| T2 | Test asserts 8 values; the Expected line says 7. Count is wrong, behavior is not. |
+| T3 | Test has 7 assertions; the Expected cumulative says 14, actual 15. Same class of error. |
+| T4 | Clean. Covers the `CLAUDE_USAGE_GUARD_OFF=0` case so a stray 0 cannot stand the guard down. |
+| T5 | Clean. 17 assertions covering both thresholds, both spawn names, and five fail-open paths. |
+| T6 | Clean. Env overrides are exported before `config.sh` is sourced, and `: "${VAR:=default}"` honors them. |
+| T7 | Epoch literal 1787201399 verified against `date -u -d '2026-08-20T04:49:59Z' +%s` on this machine. Correct. |
+| T8 | Clean. Consumes stdin unconditionally before any early exit. |
+| T9 | `POLLER_LIB_ONLY=1 . "$ROOT/hooks/usage-poller"` uses an assignment prefix on the `source` builtin. Works in bash, but is fragile. |
+| T10 | Clean. Polyglot wrapper matches the verified superpowers reference. |
+| T11 | Depends on README.md existing. See the conflict row above. |
+| T12 | Same README dependency. Three named outcomes each carry their own code response, so a failure does not strand the implementer. |
+| T13 | Clean. |
+
+## Rulings
+
+Ruling: workspace stays at the prism-rooted path — `.superpowers/` is git-ignored there (prism/.gitignore:18), so it pollutes nothing. Cost if wrong: a stray ignored directory in an unrelated repo.
+
+Ruling: Task 1 creates the repo and immediately branches to `feat/usage-guard` rather than committing to the default branch — the skill forbids implementing on master without consent, and a new repo costs nothing to branch. Cost if wrong: one extra branch to merge at the end.
+
+Ruling: README.md is created by whichever of T11/T12/T13 runs first, appending rather than overwriting; T13 then writes the full document preserving the "Verified behavior" and "Fan-out behavior" sections those tasks added. Cost if wrong: T13 clobbers recorded test evidence, recoverable from git.
+
+Ruling: the "Expected: N assertions" lines in the plan are advisory and several are miscounted (T2 says 7 for 8, T3 says 14 for 15). The binding gate is `0 failed` and exit 0 from `./test/run-tests`. Carried into every dispatch so no implementer chases a phantom mismatch. Cost if wrong: an implementer accepts a suite that silently lost a test.
+
+Ruling: if `POLLER_LIB_ONLY=1 . file` misbehaves in T9's test, the implementer exports the variable on its own line before sourcing. Cost if wrong: one confusing test failure, trivially diagnosed.
+
+Ruling: Tasks 2-7 are batched into two dispatches (T2+T3+T4, then T5+T6+T7) rather than six. Each is a small independent module whose complete code already sits in the plan, so the work is transcription plus a test run, which is exactly the same-shape batching the skill calls for. Each batch stays a coherent review surface (three sourced modules and their three test files). Cost if wrong: a defect in one module shares a review with two others and could get less attention.
+
+Ruling: this machine has `core.filemode=false`, so git records new scripts as 100644 and loses the executable bit. Task 1 fixed its own case with `git update-index --chmod=+x` without touching git config, which is the right remedy. Every later task that adds a script (T8 usage-gate, T9 usage-poller, T10 run-hook.cmd, T11 run-e2e, T12 run-fanout) must do the same and verify with `git ls-files -s`. Carried into those dispatches. Cost if wrong: the plugin ships with non-executable hooks and fails on a Unix machine while working on this one, which is the worst kind of bug to catch late.
+
+Ruling: `.superpowers/` must be added to the usage-guard repo's .gitignore. The review-package script writes into the repo root and would otherwise leave untracked scratch. Folded into the next dispatch rather than fixed by the controller, since controller edits skip review. Cost if wrong: scratch diffs get committed.
+
+## Progress
+
+Task 1: complete (commits 0091b56..2ec0501, review clean). Spec full compliance, quality approved, no Critical or Important findings. Reviewer verified the load-bearing grep contract byte by byte: `  ok   ` is 2 spaces + ok + 3 spaces, `  FAIL ` is 2 spaces + FAIL + 1 space, and run-tests' pattern `^  ok   \|^  FAIL ` matches both exactly. run-tests propagates failure correctly via `[ "$FAILED" -eq 0 ]` as its last statement.
+
+CHERRY-PICKS APPROVED BY THE OPERATOR 2026-08-20. Both accepted. Spec amended, plan grew from 13 tasks to 15.
+
+Ruling: spec decision 2 is REVERSED and recorded as "2 REVISED" rather than rewritten, so the reasoning that produced the original call stays legible. The statusline shim lands as an ADDITIVE sensor in new Task 15. The poller stays the floor because it is the only sensor that works in a headless -p session, which is where long autonomous runs live. Both sensors write the same state.json through the same atomic write, and the gate never learns which one wrote it. Cost if wrong: one extra optional file nobody installs, and a README section to delete.
+
+Ruling: the warning band lands as new spec decision 5 and new Task 14, at 80% with a 600-second throttle. Cost if wrong: one more branch in a pure function, trivially removable.
+
+Ruling: both new tasks run AFTER Task 10 and modify already-reviewed code rather than being spliced into tasks in flight. Task 14 touches lib/decide.sh and hooks/usage-gate, both complete. Task 15 is a new file. Cost if wrong: two reviewed files get a second review pass, which is cheap.
+
+Ruling: Task 14 step 1 GATES the task on an unverified mechanism. Whether Claude Code accepts {"systemMessage":"..."} on PreToolUse and displays it WITHOUT altering the permission outcome has never been tested here, and stdout on that hook is otherwise parsed as a decision. The task tests it against a disposable session first and branches: PreToolUse if accepted, UserPromptSubmit additionalContext if not, with the log carrying the warning either way. I refused to write the implementation as though the mechanism were known. Cost if wrong: the warning lands on a hook that only fires for human prompts and misses a purely autonomous loop, which is a weaker warning rather than a broken guard.
+
+Note: Task 14 step 2 CHANGES an existing assertion rather than adding beside it. test_decide.sh currently asserts `decide 89 Bash` is ALLOW; under the warning band it must become WARN. Flagged in the task text so no implementer treats the edit as a regression or adds a contradicting duplicate.
+
+Task 15: complete (commits 85d2113..d178186, review clean after 1 fix round). Suite 143 -> 150 assertions. The scale trap was avoided: no `*100` anywhere, and a pin on 46 rather than a round number so a stray multiplication produces an unmistakable 4600. Fix round anchored the five_hour extraction to the first rate_limits block, taking the FIRST match via grep -o like the tool_name fix, rather than the greedy last match. Controller verified decoys in BOTH positions, including a decoy BEFORE rate_limits in a cwd value, which the implementer's own test did not cover.
+
+FINAL WHOLE-BRANCH REVIEW, 33 commits, run on the most capable model. NOT merge-ready as delivered: one Critical, three Important, two must-fix minors. Fix wave dispatched as a single agent per the skill.
+
+CRITICAL, and it exists ONLY because of the seam Task 15 opened. The shim writes resets_at into state.json verbatim with no sanity bound; decide screens it for digit-ness only, and freeze_until loops until now >= resets_at + buffer or the 5.4 hour deadline. The shim's payload shape was NEVER verified against a live statusline: test/test_statusline.sh uses a hand-written fixture, and the prior-art corroboration covered only used_percentage's 0-100 scaling, nothing about resets_at's unit. The one place we have real evidence of Claude Code's encoding, ~/.claude.json, stores resets_at as an ISO string and its sibling fetchedAtMs in MILLISECONDS. If the statusline payload carries epoch ms, 13 digits pass the screen, the reset can never arrive, and every tool call is held for hours long after the window actually reset, with the shim rewriting every 30 seconds so it out-votes the poller's correct seconds. This is the ONLY fail-CLOSED path in a system whose binding constraint is that it always fails open, and no per-task review could have seen it: the freeze logic was designed and reviewed when the poller was the sole writer, and Task 15 added a writer with different provenance.
+
+CONTROLLER REASONING REJECTED BY THE FINAL REVIEW, and the correction stands. On read_cache's greedy `.*"five_hour"` I ruled defer, with the rationale that it parses "a file we write ourselves". That rationale is WRONG. Claude Code writes ~/.claude.json, not us, and it carries user-controlled strings including project paths and allowedTools. This is the same mistake I already caught once in the opposite direction: the Tasks 2-4 reviewer correctly ruled greedy matching unreachable in state.sh because write_state_file IS our only writer there, and I then noted that reasoning does not transfer to the hook payload. It does not transfer to ~/.claude.json either. The RULING to defer still stands on different grounds: the reviewer verified the real file empirically at 179KB with exactly one "five_hour", a flat block with no nested object, the risk fails open in both directions, and a swap on merge day means changing reviewed code. Recording the corrected rationale so nobody re-derives the wrong rule from this ledger.
+
+FINAL REVIEW, biggest user-facing risk, raised by nobody in fifteen task reviews: a frozen session is indistinguishable from a hung one. A tool call is held up to 5.4 hours with nothing in the transcript, no message and no indication the guard exists, and the only evidence is guard.log which the user must know to check. Compounding it, the README already admits that pressing Esc, the exact reflex for a session that looks stuck, is untested. The documentation prepared users for the recovery and never for the symptom, which is backwards, since they cannot choose the right response before they can tell the two situations apart. Fix wave adds that to Escape hatches.
+
+FINAL REVIEW, confirmed sound across the whole system: exactly two writers to state.json and the gate is not one of them; no other fail-closed path anywhere, with freeze_until bounded by its deadline and every gate branch an explicit exit 0; no relaunch storm, throttled at 60s with acquire_lock no-opping the loser; no immortal poller, and the shim cannot convince the poller it is unneeded because the exit criterion is the gate-seen heartbeat rather than state freshness; no dead config, all 20 values have consumers. It also hunted specifically for a FOURTH false claim of the controller-prose class and found none.
+
+Task 14: implemented (commit 9242a07), review PASS with no Critical or Important findings, one cosmetic Minor. Suite 134 -> 143 assertions. Controller verified the band table directly.
+
+Task 14: THE LAST UNVERIFIED MECHANISM IN THE DESIGN IS SETTLED. `{"systemMessage": "..."}` on PreToolUse is ACCEPTED and NON-BLOCKING. Evidence, recorded precisely enough to re-verify if Claude Code changes: the message arrives as its own {"type":"system","subtype":"informational"} event in the stream-json transcript, positioned between the tool's completion notification and the tool_result rather than replacing either; the Bash call still ran with tool_use_result.stdout "mechanism-ok" and is_error false; the final result carried stop_reason "end_turn", is_error false, and permission_denials empty.
+
+Task 14: MY BRIEF CONTRADICTED ITSELF AND THE CODE WAS RIGHT. The Interfaces prose said WARN ran only up to THRESHOLD_DRAIN; the Step 5 code placed the WARN check after the drain block with no upper bound. The implementer built the code as given, flagged the contradiction rather than silently choosing, and asked. Ruling: the wider behavior is CORRECT and stays. Capping at 89 would leave a session doing ordinary Bash or Edit work between 90 and 94 with NO signal at all, silent then frozen, which recreates the exact cliff this task removes, moved ten points up. A spawn denial is only visible to someone attempting a spawn, so it cannot serve as notice for plain tool work. Plan prose corrected. Verified table: silent below 80, WARN 80 to 94 for non-spawn tools, DENY_SPAWN 90 to 94 for Agent and Task, FREEZE everything at 95.
+
+Task 14: MATERIAL FINDING ABOUT THE APPROVED CHERRY-PICK, surfaced by the implementer's own report and confirmed by review. The feature does NOT deliver what it was approved for. The operator accepted it to give "you and the agent notice". On the evidence: plain `-p` mode shows the advisory to nobody, it appeared only under --output-format stream-json --verbose; and whether the MODEL receives it is UNVERIFIED and judged likely not, because the event sits beside the tool completion notification rather than inside the tool_result that carries content to the model, which is consistent with an observability side-channel rather than context injection. What DOES work in every mode is guard.log, which records every warn unconditionally before the systemMessage attempt. So the feature is real but narrower than approved: an operator-observable signal in the log rather than an in-session advisory. DENY_SPAWN and FREEZE are unaffected, being real permission outcomes rather than display.
+
+Task 14: broader design note worth carrying. No hook mechanism found in this project reliably reaches the MODEL except a denial with a reason. PreToolUse can allow, deny, or hold. That means the 90% drain, which denies spawns with an explanatory reason, is the only channel that actually tells an agent it is near the limit. If in-session agent self-throttling is ever wanted, it has to be built on denial, not on advisory messages.
+
+Task 14: fix round 1 dispatched, documentation only: qualify the README's unconditional "surfaces one throttled advisory" claim, point operators at guard.log as the mode-independent channel, and add a Known Limitation bullet worded to the same standard as its neighbours.
+
+Task 14: minor (deferred): test_decide.sh's new assertion titled "stale state does not warn" actually exercises the pre-existing staleness short-circuit rather than WARN-specific logic. Harmless and arguably a useful extra regression pin, but the title misdescribes it.
+
+Task 14: FIRST ATTEMPT KILLED BY THE EXACT FAILURE THIS PLUGIN PREVENTS. The implementer hit the 5-hour session limit at 2026-08-20 8:41pm PT and died. It landed nothing: clean tree, head still ce631a1, no WARN in decide.sh or config.sh, no report file. It died on step 1, the mechanism gate, which needed a `claude -p` session, and that is precisely what got refused.
+
+Task 14: the incident is the design's own validation, and worth stating in the README eventually. Had the guard been installed and armed, the 90% drain would have refused new subagent spawns and the fleet would have emptied, then the 95% freeze would have held the remaining work until the window reset and released it. Instead an agent was terminated mid-task with no checkpoint. The observed behavior of the unguarded system matches the problem statement in the spec exactly: long autonomous runs hit the wall and stop in a way nobody planned. Nothing was lost here only because the controller verifies artifacts rather than trusting reports, so the empty result was detected immediately rather than assumed complete.
+
+Task 14: window reset at 7:50am PT on 2026-08-21. Session back to 4%, week at 52%. Re-dispatching Task 14 to a fresh implementer, unchanged, since the prior attempt produced no partial state to reconcile.
+
+Task 13: complete (commits 7a3eeab..ce631a1, review clean after 2 fix rounds). Reviewer closed it explicitly, having done its own independent sweep for present-tense claims about unbuilt functionality and found none, and having independently confirmed no marketplace.json exists anywhere in the tree.
+
+Task 13: the implementer found a SECOND false claim neither I nor the reviewer had caught. The Install section said the plugin installs via `/plugin marketplace add` on the strength of .claude-plugin/plugin.json alone. A marketplace needs its own marketplace.json listing plugins by source, which this repo does not have, so the documented command would have silently found nothing. It verified against a real marketplace manifest rather than reasoning about it. That was a false INSTRUCTION in the first section a new user reads.
+
+Task 13: minor (deferred): the README says to point ${CLAUDE_PLUGIN_ROOT} at the clone path without saying whether that means exporting the variable or hand-editing the literal path into settings.json. Pre-existing, not introduced by any fix round, and unverifiable without a live session.
+
+Task 13: UNREPRODUCED, recorded rather than dismissed: one transient suite run reported "5 failed" while printing zero FAIL lines. The implementer reported it instead of hiding it. I could not reproduce it in six consecutive runs, all genuinely clean. The reviewer found NO mechanism in test/run-tests by which it could occur, since the count is a grep over the exact string that gets printed, with no shared state across iterations. Best hypothesis is environmental: this repo lives under a OneDrive path and background sync can transiently lock a file mid-read. Route to final review as unreproduced.
+
+Task 13: implemented (commits 7a3eeab, c7ad3d3), spec compliance full. Reviewer cross-checked every factual claim against source: thresholds match decide.sh with no WARN or 80% band anywhere, both escape hatches match their code exactly including that only the literal "1" disables the guard, all five file paths match config.sh defaults, all nine config-table rows match their defaults, the cost section states the measured 395-400 ms and explicitly discredits the 73 ms figure, and nothing implies Linux or macOS was measured. Evidence sections verified byte-clean across the punctuation pass: zero numbers, timestamps or log lines changed.
+
+Task 13: CONTROLLER ERROR, THE THIRD OF THIS CLASS AND THE SECOND ON THIS TASK. I listed "the statusline rate_limits payload shape" in the Task 13 dispatch as a known limitation. The shipped code never reads it; a grep for rate_limits or statusline across lib/, hooks/ and test/ returns zero hits outside README.md. Only cachedUsageUtilization.five_hour in ~/.claude.json is read, by the poller's read_cache. The statusline shim is unbuilt Task 15. Identical shape to the 80% warning band error in Task 11: I described the PLANNED system in a dispatch and a careful implementer faithfully documented what I said.
+
+Task 13: PATTERN WORTH CARRYING FORWARD. Three times now my dispatch prose has been the source of a false claim, because I summarise "what the plugin does" from the design in my head rather than from the code at that commit. Implementers cannot detect this: they have no way to know which parts of a controller's description are shipped and which are planned. Mitigation applied to the fix: I told the implementer to verify every claim against the CODE rather than against my dispatch text, and named my own text as the thing that has been wrong twice. Carry this into Tasks 14 and 15, which are precisely the tasks that BUILD the two features I keep describing prematurely, so the window for this error closes once they land.
+
+Task 13: minor (deferred): path-override variables such as STATE_FILE and DISABLE_FILE are settable but undocumented, covered only indirectly through GUARD_DIR.
+
+Task 12: complete (commit b0816bf, review clean, no Critical or Important). THE FAN-OUT QUESTION FROM SPEC DECISION 3 IS ANSWERED: freezing subagent tool calls does NOT destroy the work. 3/3 agents reported back after a ~181s freeze, elapsed 301s, and the parent process was still alive past both RESET releases. The Q3 fallback, exempting subagent contexts from FREEZE and lowering THRESHOLD_DRAIN, is NOT needed.
+
+Task 12: the honest claim is narrower than "three agents survived a freeze", and the implementer volunteered the narrowing rather than rounding up. guard.log shows only TWO concurrent freeze/release pairs. AGENT-3's single Bash call at ~61s almost certainly landed and finished before the state flip at t+20s. So the run demonstrates survival for TWO concurrently-frozen subagent calls plus one that dodged the freeze, not three simultaneously frozen.
+
+Task 12: the reviewer STRENGTHENED the finding beyond what the implementer claimed. Both freeze lines log `tool=Bash`, not `tool=Agent`. The parent's job was launching agents, so a frozen parent call would have logged tool=Agent. That largely rules out the "one of the two pairs is the parent" concern I raised, which would have reduced the evidence to a single frozen subagent. Residual gap, correctly flagged: guard.log carries no agent-id field, so a stray parent Bash call remains theoretically possible. The duration math is circumstantial but consistent: AGENT-3 at ~61s is too short to contain a ~180s hold, while AGENT-1 and AGENT-2 at ~260-278s fit hold plus release plus execution.
+
+Task 12: PROCESS COST, useful for the README. A held hook costs TWO processes, not one: Claude Code wraps each configured hook in its own shell, so 2 logical held hooks appeared as 4 raw bash processes correlated by birth time against the guard.log timestamps. A 16-agent fan-out frozen would be roughly 32 sleeping shells, still cheap but double the naive estimate. The brief's literal `ps -W | grep -c bash` returned 33-35, dominated by ~30 unrelated processes; the implementer reported both numbers and flagged the literal one as unusable noise rather than letting the brief's own method mislead.
+
+Task 12: minor, ROUTED TO TASK 13 rather than a fix round: the README's bolded fan-out headline reads stronger on a skim than the caveat two sentences later allows. Task 13 owns the full README and will rewrite it, so the caveat gets folded into the headline sentence itself there.
+
+Task 11: fix round 1/5 (3 addressed, 0 open — phantom 80% threshold in README; 161s vs 160s; bare invocation could start four sessions; commit a6159af). Documentation and harness only, no reruns, no sessions spent. Controller verified all three directly: bare invocation exits 1 in 0 seconds with zero stdout, README carries no 80% or throttle language, 160s matches its source.
+
+Task 11: complete (commits 84c997d..a6159af, review clean after 1 fix round). Reviewer did its own full 44-line README sweep rather than trusting the implementer's, and confirmed the section now describes exactly the three outcomes decide.sh implements, with thresholds matching config.sh verbatim. Total real sessions spent on this task: 5, all within approved scope.
+
+Task 11: CENTRAL CLAIM CONFIRMED END TO END against the assembled plugin, not a synthetic hook. Check 2 rerun in isolation: elapsed 181s, model reported `thawed` with NO error text, guard.log shows freeze start 02:24:41 to freeze end reason=RESET 02:27:21. The reviewer verified the arithmetic is exact rather than merely plausible: a 90s fabricated reset plus RESET_BUFFER 60 gives a 150s target, freeze_until wakes on 20s increments and releases only once now >= target, so the first qualifying wake is 160s, matching the log exactly. 181 minus 160 leaves 21s of session startup, consistent with check 1's measured 19s.
+
+Task 11: my freeze-start/DISABLE inference was CONFIRMED by the reviewer against the code: usage-gate runs `guard_disabled && exit 0` before TOOL, decide or freeze are reached, and freeze_until rechecks guard_disabled every iteration, so a `freeze start` line is unreachable if DISABLE existed at entry. ESCAPE mid-freeze is the only explanation, and check 4 did not need re-running. That ruling saved a session and held up.
+
+Task 11: Critical (fixing), AND IT IS MY ERROR. README.md:9 claimed "the gate is silent below 80%". No 80% threshold exists in the shipped code; config.sh has THRESHOLD_DRAIN=90 and THRESHOLD_FREEZE=95, and check 1 ran at pct=10. The 80% warning band is Task 14, unbuilt. I described it in the Task 11 dispatch as though it existed, including a "throttled warning" for 80-89, and the implementer faithfully documented what I told it. Lesson worth keeping: a dispatch that describes the PLANNED system rather than the SHIPPED one produces documentation that overclaims, and the implementer has no way to know the difference. Fixing by correcting to what check 1 actually demonstrates and sweeping the section for other future-state references.
+
+Task 11: Important (fixing): README said 161s between the two log lines; the timestamps give 160s and the report itself says 160s correctly. A number disagreeing with its own source, in the section held to the highest evidentiary bar.
+
+Task 11: Important (fixing): a bare `bash test/e2e/run-e2e` still runs all four checks, guarded only by a comment. A comment does not prevent the failure that caused the incident, which was a pipe not stopping a producer. Requiring an explicit argument, with `all` as the only way to run everything.
+
+Task 11: evidence honesty otherwise held up. Checks 3 and 4 are labelled "Evidence is guard.log only (no stdout captured)", which correctly distinguishes inferred from observed. The process-lifetime finding is properly hedged, explicitly flagging that TaskStop is not a session exit and calling itself supporting evidence rather than a controlled experiment.
+
+Task 11: INCIDENT, and an accidental finding worth more than the incident cost. The implementer ran the brief's literal `bash test/e2e/run-e2e | sed -n '/== 1/,/== 2/p'` expecting the sed range to stop after check 1. A pipe filters display and never stops the producer, and it fully buffered so nothing streamed. TaskStop then killed only the wrapper shell. All four checks ran back to back with no review gate. The implementer stopped, reported honestly, retried nothing, and asked for direction. No budget was spent beyond the four approved sessions.
+
+Task 11: ACCIDENTAL FINDING, directly relevant to the sensor lifecycle question we could not resolve in Task 10. On this Windows and Git Bash machine, backgrounded children SURVIVED their parent being killed: they reparented to PID 1 and the script continued to completion after TaskStop took down the wrapper. That is empirical evidence for the outlives-parent branch, which Task 10's implementer had to report as UNVERIFIED and which the reviewer analysed as the branch that produces an immortal poller probing forever with no session open. If that branch is what this machine actually does, then GATE_IDLE_TIMEOUT is not a defensive nicety, it is the load-bearing mechanism that stops the budget guard from spending budget. Caveat before treating it as settled: TaskStop is not the same signal as a Claude Code session exiting, and a Job Object kill on the host process may still behave differently. Carry into the final review as strong but not conclusive evidence, and state it that way in the README rather than claiming either branch as proven.
+
+Task 11: Ruling: accept guard.log as sufficient for checks 1, 3 and 4, and re-run ONLY check 2. Reasoning: the log already evidences the others. Check 2 shows freeze start 02:17:29 to RESET 02:20:10, which is 161 seconds against a 150 second target (90 second fabricated reset plus RESET_BUFFER 60) on a 20 second wake increment, so the freeze held and released on the clock. Check 3 shows deny spawn at 92 with NO freeze line, correct below the freeze threshold. Check 4's `freeze start` line itself PROVES DISABLE was absent at entry, since guard_disabled is checked first and would have skipped the freeze, so the file appeared mid-freeze and produced ESCAPE, which is exactly the behavior under test. What is missing is the only claim the project rests on: that the MODEL receives its result cleanly after being held, with no error and no awareness of the pause. guard.log cannot show that. Proven this morning against a synthetic hook, never against the assembled plugin. Cost if wrong: one short session re-spent.
+
+Task 10: fix round 2/5 (5 addressed, 0 open — relaunch needed an exec bit; POLLER_BIN env-injectable; redirect ordering; false comment; tautological config test; commit 945dbcb). Suite 128 -> 134 assertions.
+
+Task 10: complete (commits d312b20..945dbcb, review clean after 2 fix rounds). Reviewer called it CLEAN explicitly.
+
+Task 10: controller verified the security close with a live attempt rather than by reading: pointed POLLER_BIN at a script that touches a sentinel, drove the gate through the stale-state relaunch, and the sentinel was never created. The gate now assigns POLLER_BIN unconditionally instead of `: "${POLLER_BIN:=...}"`, so an inherited value is overwritten before it can be read.
+
+Task 10: reviewer's judgement on the sentinel, accepted: it moves the injectable name rather than eliminating it, and that is still the right call. Against the realistic threat, a stale export in a shell rc or a .env-loading wrapper, it is fully closed. Against an attacker who already controls the gate's environment it is unchanged, but that was never mitigable here and was never an escalation, since the same attacker can point GUARD_DIR or DISABLE_FILE elsewhere and neuter the guard without executing anything.
+
+Task 10: minor (deferred): THE THIRD TAUTOLOGY-CLASS ITEM. The non-chmod'd-stub test at test_gate.sh:141-155 is a no-op on this machine. The reviewer verified empirically that a file created by plain redirect comes out -rwxr-xr-x here and that `chmod -x` does not stick, because this filesystem does not enforce POSIX permissions. So the test would pass unchanged even if the gate still executed the poller directly. Real coverage on Linux and macOS, worthless on Windows, which is exactly where the exec-bit incident (7425987) happened. Remedies for final review: assert the invocation form directly by grepping usage-gate for `bash "$POLLER_BIN"`, or probe at runtime whether chmod -x takes effect and SKIP with a message when it does not, so the suite never reports coverage it did not get.
+
+Task 10: note from the reviewer, not a finding: the POLLER_BIN seam could be removed entirely by having tests copy usage-gate into a temp dir beside a stub named usage-poller, since HOOK_DIR derives from $0. Not worth churn now; candidate for final review triage.
+
+Task 10: fix round 1/5 (5 addressed, 0 open — decide ignored resets_at; sensor lifecycle broken in both branches; SessionStart matcher too narrow; immortal poller unbounded; cmd errorlevel expanded at parse time; commit f86ff62). Suite 98 -> 128 assertions. Controller verified the four reset-guard combinations by hand and confirmed 4 FREEZE and 3 DENY_SPAWN assertions remain LIVE rather than silently flipped to ALLOW.
+
+Task 10: two catches by the implementer that nobody asked for, both worth recording. Adding resets_at as a fifth parameter would have flipped every pre-existing FREEZE and DENY_SPAWN assertion to ALLOW, leaving a green suite that tested nothing; it gave the six existing calls a future reset. And the new relaunch path would have launched the REAL poller, spending real budget on every test run; it added a POLLER_BIN stub seam. It also measured the heartbeat's fast-path cost rather than assuming: `cat` cost 34 ms per call and pushed the gate 404 -> 457 ms, so it switched to the `read` builtin against a redirect at 0.3 ms, returning the gate to ~395 ms.
+
+Task 10: fix round 2 dispatched. Important: the gate executes "$POLLER_BIN" directly, so the relaunch depends on an exec bit this branch has ALREADY lost once (commit 7425987 exists only to restore it under core.filemode=false). On a checkout that drops it the launch fails with Permission denied, output is discarded so nothing logs, the throttle stamp is already spent, and Fix B silently no-ops with no test catching it because the test stub is chmod +x'd. Fixing by invoking through `bash`, which is why the SessionStart path is immune.
+
+Task 10: Important: POLLER_BIN is the first config value that names something to EXECUTE rather than data, and `: "${POLLER_BIN:=...}"` honours an inherited value from the Claude Code process environment. A stale export in a shell rc or a .env-loading wrapper would make the gate execute an arbitrary path, detached, on every stale-state tool call. Containing it to the plugin's own hooks directory or a named test sentinel.
+
+Task 10: minor (fixing): `read -r last < "$f" 2>/dev/null` applies redirections left to right, so a failing input redirect aborts before 2>/dev/null is installed and the error reaches real stderr. TOCTOU-only behind the `[ -r ]` guard, and it lands on stderr not stdout so no hook decision is corrupted.
+
+Task 10: minor (fixing): a comment in config.sh claims a live gate never trips GATE_IDLE_TIMEOUT. FALSE. A frozen gate sits in freeze_until's sleep loop making no tool calls, so the heartbeat stops and the poller exits after 1800s during a multi-hour freeze, exactly when the sensor matters. Self-healing, because freeze_until releases on the clock and resets_at rather than on state, and the next tool call relaunches. Behavior stays; the comment gets corrected, since a wrong comment becomes a future bug.
+
+Task 10: minor (fixing): test_config.sh's RELAUNCH_THROTTLE assertion runs a COPY of the case statement inline instead of exercising lib/config.sh. It would pass with the screen deleted. Same class as the flaky freeze test: a green assertion proving nothing.
+
+Task 10: minor (deferred): two gates racing can both read the pre-write stamp and both launch; acquire_lock makes the loser a no-op.
+
+Task 10: implemented (commits d312b20, 7425987), spec PASS. Controller verified: coupling 19800 on both sides, both JSON parse, PreToolUse matcher "" async false timeout 19800, SessionStart startup|resume async true, wrapper dispatches and fails open exit 0, three scripts 100755 and hooks.json correctly 100644, suite unchanged at 98.
+
+Task 10: Ruling: ADOPT the reviewer's gate-as-heartbeat design over my own proposed fix, and amend the spec to match. This changes the architecture the operator approved, so it is recorded in the spec's sensor section rather than living only in a commit. Cost if wrong: the gate acquires a responsibility it did not have, and a defect there now affects sensor recovery as well as enforcement.
+
+Task 10: Critical (fixing): the sensor lifecycle is broken in BOTH branches, so there is no branch in which the current design is correct. If the poller dies with its parent, a second session whose poller lost the startup race exited permanently, so when the first session ends the second runs unguarded for life, with SessionStart already spent and its matcher not firing on clear or compact. If the poller outlives its parent, an immortal poller probes forever with no session open, meaning the budget guard spends budget. My proposed standby retry-loop was REJECTED with better reasoning: it leaks a process per session in branch 2 and dies with its parent in branch 1, exactly when needed. Adopted instead: the gate becomes the heartbeat, relaunching the poller detached and throttled when it reads UNKNOWN or stale state, bounded by one tool call rather than one poll interval; the poller self-exits after GATE_IDLE_TIMEOUT without a gate heartbeat; and the SessionStart matcher widens to startup|resume|clear|compact.
+
+Task 10: Important (fixing): decide() never compared now against resets_at. A fresh session starting after a window reset reads leftover state, and if it is younger than STALE_SECONDS and carries pct >= 90, DENY_SPAWN fires though the window has reset. FREEZE was safe only by luck, because freeze_until returns RESET immediately once the reset has passed. One-line guard plus a fifth parameter.
+
+Task 10: Important (fixing): every `exit /b %ERRORLEVEL%` in run-hook.cmd sits inside a parenthesised if block, so cmd expands it at PARSE time and the wrapper always returns the pre-block errorlevel, effectively 0. Harmless today because usage-gate exits 0 on every path by design, and it silently destroys exit-code semantics for any future hook that needs them.
+
+Task 10: minor (deferred): the wrapper's bash half lacks the empty-arg guard its cmd half has; %2..%9 are forwarded unquoted so args with spaces would split; `kill -0` over MSYS against a Windows pid is subject to pid reuse, so a recycled pid can make a dead lock owner look alive.
+
+Task 9: fix round 2/5 (2 addressed, 0 open — reclaim TOCTOU; unchecked pid write; commit 217b64b). Suite 89 -> 98 assertions. Session crashed mid-round; state rebuilt from this ledger plus git log, nothing lost, round re-dispatched to a fresh implementer with the report file as its memory.
+
+Task 9: complete (commits 0451038..217b64b, review clean after 2 fix rounds).
+
+Task 9: NOTE, my instruction would have introduced a bug and the implementer caught it. My round-2 item 2 said main_loop should exit when it discovers it no longer owns the lock. The EXIT trap at that point was an unconditional `rm -rf "$LOCK_FILE"`, so a poller exiting for that reason would have deleted the NEW owner's fresh lock on the way out, recreating the very race the round was closing. The implementer guarded the trap as `own_lock && rm -rf "$LOCK_FILE" 2>/dev/null; :`. Second time today an implementer caught a defect in my own instructions.
+
+Task 9: precision from the re-review, worth keeping accurate: the reclaim race is NOT eliminated, it is bounded. mv is atomic only with respect to whatever currently sits at the lock path and offers no compare-and-swap against the directory a racer originally inspected, so a second racer can still rename away a first racer's live lock. own_lock is what bounds the damage, to at most one extra iteration of the losing poller's loop before it self-exits. Do not describe this as race-free.
+
+Task 9: the trailing `; :` in the trap forces the trap's own exit status to 0. The re-reviewer confirmed it is NOT load-bearing today, since the file carries no `set -e` and a plain EXIT trap's internal status cannot override the script's exit code. Cheap defensive style against a future `set -e`, not a correctness fix.
+
+Task 9: minor (deferred): guard_log fires on every contended or reclaim attempt inside acquire_lock's loop. Harmless unless that path gets hot.
+
+Task 9: implemented (commits 0451038, 549b3d6). Controller verified: 81 assertions 0 failed, usage-poller 100755, clean tree, atomic write leaves no .tmp and round-trips through read_state, and read_cache returns the five_hour pair whether five_hour or seven_day is serialized FIRST (I tested the seven_day-first order myself, which the implementer's fixture did not cover).
+
+Task 9: Ruling: the review labeled its verdict "Approved" while carrying a Critical finding. Those contradict, and the finding wins. Running the fix loop. Cost if wrong: one fix round on code that was arguably shippable.
+
+Task 9: Ruling: FIX both the Critical and the Important, though both are mandated by the plan's own code. Each can silently kill the sensor permanently, after which the state file goes stale, the gate correctly fails open, and the machine has NO protection with no error surfaced anywhere. That is precisely the outcome this project exists to prevent, so the spec's purpose outranks the plan's text. Cost if wrong: two contained edits plus tests.
+
+Task 9: Critical (fixing): the singleton lock has no recovery path. `mkdir "$LOCK_FILE"` is released only by a trap on EXIT INT TERM. SIGKILL, power loss or any skipped trap strands the directory, and every later poller exits 0 silently at the mkdir failure. Permanently dead until a human removes it. Fix records the owning pid in the lock and reclaims a lock whose owner is gone. NOTE I flagged to the implementer: the lock directory stops being empty once it holds a pid file, so the existing `rmdir` in the trap will FAIL and must become `rm -rf`, or the same permanent-lock bug returns through a different door.
+
+Task 9: Important (fixing): run_probe spawns `claude -p "/usage"` with no timeout, so a stalled CLI blocks main_loop forever with nothing logged. Fix uses a background probe with a pid watchdog rather than the `timeout` command, which is absent on stock macOS and would violate the no-dependency constraint. Adds PROBE_TIMEOUT default 60 to config.
+
+Task 9: Ruling: the reviewer's second Important, that the trap and outlives-parent behavior cannot be verified from usage-poller alone, is NOT a Task 9 defect. `main_loop &` carries no disown or nohup, so whether the poller survives its parent depends on the SessionStart wiring, which is Task 10's file. Carried into the Task 10 dispatch and review as a required check rather than into this fix loop. Cost if wrong: the poller dies with its parent session and the sensor only runs while a session is open, which is survivable because the gate has a staleness ceiling.
+
+Task 9: minor (deferred): read_cache's `{\([^}]*\)}` capture truncates at the first inner brace if the five_hour block ever gains a nested object, returning a wrong but non-empty block that fail-open would not catch. Theoretical against today's schema. Also `tr -d '\n'` reads all of ~/.claude.json each poll with no size guard.
+
+Task 8: fix round 1/5 (2 addressed, 0 open — HOOK_TIMEOUT_SECONDS octal exit-1; greedy tool_name last-match; commit 43665a7). Suite 63 -> 67 assertions, 0 failed. Controller verified all three failure cases end to end before re-review: decoy payload allowed with 0 bytes, mirror payload denied, octal value exits 0 silently.
+
+Task 8: complete (commits 88df21d..43665a7, review clean after 1 fix round).
+
+Task 8: NOTE FOR THE RECORD, my own error. The screen I prescribed for finding 1, `''|*[!0-9]*`, was WRONG and would never have fired on 08000 because that string is all digits. The implementer verified my screen failing, then used `''|*[!0-9]*|0?*`. The re-reviewer confirmed the replacement is the correct minimal fix and that no all-digit string still triggers an octal error: a leading zero is bash's only octal trigger, and a value past intmax wraps silently rather than erroring, so fail-open holds either way. Had the implementer applied my instruction verbatim, we would have shipped a fix that fixed nothing with a green suite.
+
+Task 8: minor (deferred): the tool_name extraction is POSITIONAL, not structural. It takes the first `"tool_name"` in the byte stream, which is the top-level key only because Claude Code happens to emit tool_name before tool_input. The re-reviewer verified that a payload with tool_input serialized FIRST, `{"tool_input":{"tool_name":"Agent"},"tool_name":"Bash"}`, resolves to Agent, which is the WRONG tool and would false-deny a Bash call in the drain band. JSON does not guarantee key order. A structural fix needs a JSON parser, which the no-dependency constraint forbids. Strictly better than the last-match behavior it replaced, and correct against the emitter as captured today. Route to final review: add a code comment recording the dependency on emitter key order, and a test asserting today's order.
+
+Task 8: minor (deferred): a bare `0` for HOOK_TIMEOUT_SECONDS passes the screen and silently disables the freeze via immediate DEADLINE release, rather than falling back to 19800. Safe under fail-open. Add `|0` to the case arm if a 0 should read as a typo instead of a deliberate off switch.
+
+Task 8: minor (deferred): a tool_name containing an escaped quote truncates and falls through to ALLOW. No real tool name contains a quote.
+
+Task 8: fast-path cost moved 352 ms -> 401 ms with the grep|head|sed chain replacing sed|head, one extra fork. Compounds the budget ruling above; same disposition.
+
+Task 8: implemented (commits 88df21d, d47a088), spec MET all six steps, quality APPROVED WITH CHANGES. Controller verified: 63 assertions 0 failed, usage-gate recorded 100755, ALLOW path emits 0 bytes on both stdout and stderr. Reviewer confirmed the implementer's arithmetic-guard reasoning is correct, and confirmed the stdout contract is clean (guard_log writes only via >> to LOG_FILE; every other producer is inside a command substitution).
+
+Task 8: Ruling: FIX both Important findings, though both are mandated by the plan's own code. The spec is the binding authority and each finding violates a stated spec constraint. Finding 1 violates "fail open, always"; finding 2 defeats the 90% drain stage the spec's decision 3 requires. Cost if wrong: two small edits to reviewed code, recoverable from git.
+
+Task 8: Important 1 (fixing): hooks/usage-gate:47 `DEADLINE=$((NOW + HOOK_TIMEOUT_SECONDS - 120))` exits 1 on a malformed value. Reproduced by the reviewer: HOOK_TIMEOUT_SECONDS=08000 gives "value too great for base" because a leading zero parses as octal. Realistic because this is the one variable Task 10 requires a human to keep in sync with hooks.json. Fix screens the value in lib/config.sh so every consumer is protected.
+
+Task 8: Important 2 (fixing): hooks/usage-gate:24 greedy tool_name extraction takes the LAST match on a single-line payload. Reproduced: {"tool_name":"Bash","tool_input":{"tool_name":"Agent"}} is DENIED as a spawn; the mirror case, an Agent spawn whose input contains "tool_name":"Bash", silently BYPASSES the drain. Fires on any Write/Edit/Bash whose input carries the literal string "tool_name", including edits to this repo's own tests. NOTE the relationship to the Tasks 2-4 deferred minor: that reviewer correctly ruled greedy matching unreachable in state.sh because write_state_file is the only writer. That reasoning does not transfer here, because the payload writer is Claude Code and tool_input carries arbitrary text. Same regex shape, entirely different risk.
+
+Task 8: Ruling: the 73 ms fast-path budget in the spec and plan is WRONG and must be corrected rather than defended. I measured 73 ms on a simplified probe script, not on the real gate. The reviewer measured the actual gate at ~352 ms per invocation against a 35 ms empty-script baseline on Git Bash, roughly 315 ms of gate work, about 4x over budget, caused by roughly a dozen forks: a subshell for $(cd && pwd), a sed|head for TOOL, and cat plus three separate sed|head pipelines inside read_state. Git Bash forks are pathologically slow so Linux likely lands far closer. Decision: do NOT churn reviewed code now. Task 13's README must state the measured Windows number honestly instead of the 73 ms aspiration, and the single-sed collapse of read_state goes to the final whole-branch review for triage. Cost if wrong: the plugin is slower on Windows than the docs imply, which is a documentation defect rather than a correctness one.
+
+Task 8: minor (deferred): a pct with a leading zero renders as "092% used" in the deny reason. Cosmetic.
+
+Task 8: minor (deferred): lib/decide.sh:20,25 emit stderr for a pct exceeding intmax (21 digits). Fails open to ALLOW and stderr is discarded on exit 0. Out of scope for the gate.
+
+Tasks 5-7: complete (commits 120d786..dfa5953, review clean). Spec byte-identical to briefs, quality approved, ZERO findings at any severity. Reviewer empirically executed the leading-zeros case rather than reasoning about it: bash's `[` parses 008 as decimal 8, and the octal trap only applies inside $(( )), which pct never enters. Reviewer also self-corrected a starvation concern about RESET being checked before DEADLINE, tracing that DEADLINE is independently reachable whenever deadline < target, and that the one case where RESET preempts a due DEADLINE is the case where the window already reset, which is the more correct release.
+
+Tasks 5-7: CARRY-FORWARD to the integration review (reviewer's own flag, controller accepted): iso_to_epoch returns an empty string on total failure. Within lib/ this is safe because decide() screens ts through `case "$ts" in ''|*[!0-9]*)` before any arithmetic. The not-yet-written callers must be checked for unguarded arithmetic on that empty return. Applies to Task 9's poller, which does `epoch=$(iso_to_epoch "$iso")`. Required check in the Task 8/9 dispatch and review.
+
+Tasks 5-7: implemented, in review (commits 120d786, e9e9b27, dfa5953). Controller verified independently: 50 assertions, 0 failed, exit 0, clean tree. The 50 decomposes as 20 prior + 17 decide + 8 freeze + 5 timeconv, so no test was dropped. Epoch literal 1787201399 confirmed a second time by the implementer.
+
+## Prior art reviewed 2026-08-20 (user-supplied)
+
+github.com/eltonylfgi-blip/claude-usage-pacer: not applicable. Single-file web app, percentage typed in by hand, weekly pacing calculator, no Claude Code integration. 4 commits, 0 stars. Nothing to take.
+
+github.com/eltonylfgi-blip/claude-code-usage-guard: real prior art, Node.js plugin, 34 commits, 2 stars, MIT. Explicitly "warn-don't-block" as an engineering principle, so it does not meet the binding requirement to freeze and auto-resume. CORROBORATES our findings independently: (a) "Claude Code only exposes your real rate_limits to a status-line command, never to a hook", matching our captured PreToolUse payload which carries no usage fields; (b) their shim treats used_percentage as already a percent with no *100, matching our binary reading that Claude Code multiplies the 0-1 fraction before the payload; (c) atomic temp+rename and fail-open, same choices as ours; (d) they list PreToolUse as the optional hook to gate subagent spawns, arriving independently at our 90% drain stage. WHERE OURS LEADS: they never found `cachedUsageUtilization` in ~/.claude.json or the `claude -p "/usage"` probe, so their fallback is a token-weight PROXY (input + output + cache_creation + cache_read*0.1); their statusline-only sensor goes dark in headless -p sessions, which is where long autonomous runs live; and they require node, which is not guaranteed now that Claude Code ships as a native binary.
+
+Reddit thread and libhunt comparison the user supplied could not be fetched (Reddit blocked at the fetch layer, libhunt 403, web search did not surface the thread body). Not summarized, not guessed at. Primary sources were read directly instead, including the shim source itself.
+
+CHERRY-PICKS PENDING USER DECISION, neither blocking before Task 13: (1) statusline shim as an ADDITIVE sensor with refreshInterval 30, which partly reverses decision 2 in the spec, buying 30-second freshness at the cost of a manual per-machine edit and no headless coverage; (2) a warning band around 80% so the design does not jump from silent to frozen with nothing between. Item 2 would add a WARN branch to lib/decide.sh and is best applied after Task 5's review closes rather than churning it mid-flight.
+
+Tasks 2-4: complete (commits 947d11e..7ea5d60, review clean). Spec met on all three; quality approved; no Critical findings. Controller verified independently: 20 assertions, 0 failed, exit 0; clean tree; `.superpowers/` in .gitignore.
+
+Tasks 2-4: controller-resolved "cannot verify from diff" item: the reviewer could not trace the `.gitignore` addition to any brief and flagged it unverified rather than assuming. Correct call. It came from controller decision 3 in the dispatch. Not a gap, no action.
+
+Tasks 2-4: controller suspicion REFUTED by review, and the refutation checked. I suspected `.*"used_percentage"` was unanchored and would collide with a key like `"cached_used_percentage"`. It does not: the pattern carries a literal `"` before the key name, so a match needs the exact substring `"used_percentage"`, which never appears inside `"cached_used_percentage"` where that text is preceded by `_`. My framing was wrong. Recorded so the final review does not re-raise it.
+
+Tasks 2-4: minor (deferred): greedy `.*` in the state.sh regexes captures the LAST occurrence on a line, while the trailing `head -1` dedupes across lines. The two disagree about intent. Unreachable today because `write_state_file` is the only writer and emits each key once. Route to final review: either anchor the regexes or drop the misleading `head -1`.
+
+Task 1: minor (deferred): ASSERT_TOTAL and ASSERT_FAILED in test/assert.sh are dead state. They are incremented but never read, exported, or echoed; all counting happens in run-tests by grepping captured stdout. This is a defect in the PLAN's own Step 2 code, not an implementer error. T2's test file also writes them to /tmp files that nothing asserts on, same origin. Route to the final whole-branch review for triage: either delete the counters and the /tmp writes, or have run-tests read them instead of grepping.
