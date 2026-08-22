@@ -199,6 +199,7 @@ sessions inherit:
 | `RELAUNCH_THROTTLE` | `60` | Minimum seconds between the gate's attempts to relaunch a missing poller. |
 | `GATE_IDLE_TIMEOUT` | `1800` | Seconds without a tool call before the poller assumes no session is left to serve and exits. |
 | `WARN_THROTTLE` | `600` | Minimum seconds between two advisory messages. |
+| `USAGE_GUARD_PROBE` | unset | **Internal, reserved. Do not set.** Marks a `claude -p "/usage"` probe's own child session so its poller and gate both stand down instead of recursing. Set automatically by `run_probe`; setting it by hand in a real session silently disables the guard for that session. |
 
 The file paths under "Where state lives" above (`STATE_FILE`, `DISABLE_FILE`, `LOCK_FILE`,
 `LOG_FILE`) are also individually overridable; in practice `GUARD_DIR` alone covers them.

@@ -14,7 +14,16 @@
 # probe-launched session so its poller stands down before touching the lock,
 # the log, or any state. This must run before anything else in the file,
 # including sourcing the libs, so a probe session's poller does zero work.
-[ "${USAGE_GUARD_PROBE:-}" = "1" ] && exit 0
+#
+# Guarded on POLLER_LIB_ONLY being unset: `exit` in a file that is being
+# dot-sourced (as the test suite does via `POLLER_LIB_ONLY=1 . usage-poller`)
+# exits the SOURCING shell, not just this file. Without this guard, running
+# the test suite in an environment that happened to carry
+# USAGE_GUARD_PROBE=1 would kill test_poller.sh at this line having printed
+# zero assertions, and run-tests would report the suite green anyway since
+# it counts printed "ok" lines rather than checking against an expected
+# count.
+[ -z "${POLLER_LIB_ONLY:-}" ] && [ "${USAGE_GUARD_PROBE:-}" = "1" ] && exit 0
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HOOK_DIR/../lib"
@@ -75,8 +84,15 @@ write_state_file() {
 # takes no dependencies beyond bash and coreutils. So the probe is backgrounded
 # and watched by hand, one second at a time, up to PROBE_TIMEOUT, rather than
 # left to hang the loop forever on a stalled CLI.
+# Returns 1 (without touching state) when the probe was skipped under
+# PROBE_MIN_INTERVAL, and 0 whenever it actually ran, timed out or not.
+# poll_once relies on that distinction: without it, a skipped probe still
+# fell through to read_cache and write_state_file with a fresh ts, silently
+# republishing the old cached reading as current and defeating
+# STALE_SECONDS for that cycle.
 run_probe() {
-  probe_due "$(date +%s)" || { guard_log "poll: probe skipped, under PROBE_MIN_INTERVAL"; return 0; }
+  probe_due "$(date +%s)" || { guard_log "poll: probe skipped, under PROBE_MIN_INTERVAL"; return 1; }
+  guard_log "poll: launching probe session (USAGE_GUARD_PROBE=1)"
   USAGE_GUARD_PROBE=1 MSYS_NO_PATHCONV=1 claude -p "/usage" >/dev/null 2>&1 &
   local probe_pid=$!
   local waited=0
@@ -95,7 +111,7 @@ run_probe() {
 }
 
 poll_once() {
-  run_probe
+  run_probe || { printf '\n'; return 0; }
   local cache pct iso epoch
   cache=$(read_cache)
   [ -n "$cache" ] || { guard_log "poll: cache unreadable"; printf '\n'; return 0; }

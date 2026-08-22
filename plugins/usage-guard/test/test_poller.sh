@@ -169,12 +169,55 @@ rm -f "$GATE_SEEN_STAMP"
 # immediately and do no work at all, not even acquire the lock or log.
 # Isolated into its own GUARD_DIR so a pre-existing guard.log from the
 # lock-reclaim assertions above cannot mask a regression.
+#
+# Bounded, not awaited via command substitution: `main_loop &` backgrounds a
+# subshell that inherits this process's stdout, so `out=$(... bash
+# usage-poller)` would block on EOF from that fd until the subshell exits,
+# which (absent the early exit) only happens after GATE_IDLE_TIMEOUT or a
+# real crash. A removed early exit must fail this test, not hang the suite:
+# output goes to a file, the invocation is backgrounded from THIS shell
+# instead, and this test polls kill -0 for a bounded number of iterations
+# before asserting on exit rather than waiting on the pipe.
+#
+# A stub `claude` is put on PATH for this one invocation. If the early exit
+# were ever removed, main_loop would eventually reach run_probe, which would
+# try to launch a real `claude -p "/usage"` session; the stub makes that
+# call to a fake CLI even in that broken-code scenario, so this regression
+# test can never itself become the thing that spawns a real probe session.
 PROBE_DIR="$GUARD_DIR/probe-sentinel"
-rm -rf "$PROBE_DIR"; mkdir -p "$PROBE_DIR"
-out=$(GUARD_DIR="$PROBE_DIR" LOCK_FILE="$PROBE_DIR/guard.lock" LOG_FILE="$PROBE_DIR/guard.log" USAGE_GUARD_PROBE=1 bash "$ROOT/hooks/usage-poller" 2>&1)
-code=$?
-sleep 0.3
-assert_eq "$code" "0" "USAGE_GUARD_PROBE=1 makes usage-poller exit 0 immediately"
+rm -rf "$PROBE_DIR"; mkdir -p "$PROBE_DIR/bin"
+cat > "$PROBE_DIR/bin/claude" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+chmod +x "$PROBE_DIR/bin/claude"
+PROBE_OUT="$PROBE_DIR/poller.out"
+: > "$PROBE_OUT"
+
+(
+  PATH="$PROBE_DIR/bin:$PATH" \
+  GUARD_DIR="$PROBE_DIR" LOCK_FILE="$PROBE_DIR/guard.lock" LOG_FILE="$PROBE_DIR/guard.log" \
+  USAGE_GUARD_PROBE=1 bash "$ROOT/hooks/usage-poller" > "$PROBE_OUT" 2>&1
+) &
+poller_pid=$!
+
+tries=0
+while kill -0 "$poller_pid" 2>/dev/null && [ "$tries" -lt 10 ]; do
+  sleep 0.2
+  tries=$((tries + 1))
+done
+
+if kill -0 "$poller_pid" 2>/dev/null; then
+  kill -9 "$poller_pid" 2>/dev/null
+  wait "$poller_pid" 2>/dev/null
+  assert_eq "did-not-exit" "exited" "USAGE_GUARD_PROBE=1 makes usage-poller exit promptly instead of hanging (it did not; a stray process had to be killed)"
+else
+  wait "$poller_pid"
+  code=$?
+  assert_eq "$code" "0" "USAGE_GUARD_PROBE=1 makes usage-poller exit 0 immediately"
+fi
+
+out=$(cat "$PROBE_OUT" 2>/dev/null)
 assert_eq "$out" "" "USAGE_GUARD_PROBE=1 usage-poller prints nothing"
 assert_eq "$([ -e "$PROBE_DIR/guard.lock" ] && echo present || echo absent)" "absent" "USAGE_GUARD_PROBE=1 writes no lock directory"
 assert_eq "$([ -s "$PROBE_DIR/guard.log" ] && echo present || echo absent)" "absent" "USAGE_GUARD_PROBE=1 writes no guard.log line"
