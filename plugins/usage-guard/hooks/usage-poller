@@ -141,7 +141,20 @@ acquire_lock() {
     fi
 
     if mkdir "$LOCK_FILE" 2>/dev/null; then
-      if printf '%s\n' "$$" > "$LOCK_FILE/pid" 2>/dev/null; then
+      # $BASHPID, not $$: main_loop runs inside a `main_loop &` subshell, and
+      # bash keeps $$ pinned to the ORIGINAL script process even inside a
+      # backgrounded subshell, while BASHPID reports the subshell's own,
+      # real OS pid. Recording $$ here recorded the launcher's pid, which
+      # exits within milliseconds of backgrounding main_loop, leaving the
+      # lock naming an already-dead process while the loop it protects keeps
+      # running. Every later poller then correctly found that pid dead and
+      # reclaimed a lock that was, in fact, still legitimately held. That
+      # reclaim-storm fingerprint ("poll: reclaiming stale lock from pid
+      # NNNNN", a fresh pid every time) looks identical to the probe-
+      # recursion storm this file's earlier fix addresses, but is a
+      # different bug with a different mechanism, predates it, and would
+      # keep firing after that fix without this change.
+      if printf '%s\n' "$BASHPID" > "$LOCK_FILE/pid" 2>/dev/null; then
         return 0
       fi
       # Could not record ownership: don't hold a lock we can't prove we own.
@@ -168,11 +181,13 @@ acquire_lock() {
 # True only when the pid file under $LOCK_FILE names this process. Used by
 # main_loop to detect that a racing reclaim took the lock out from under it,
 # so a transient double-acquire self-corrects within one iteration instead
-# of two pollers running forever.
+# of two pollers running forever. Compares against $BASHPID, matching
+# acquire_lock: main_loop runs inside a `main_loop &` subshell, so $$ here
+# would name the already-exited launcher, not this loop.
 own_lock() {
   local owner
   owner=$(cat "$LOCK_FILE/pid" 2>/dev/null)
-  [ -n "$owner" ] && [ "$owner" = "$$" ]
+  [ -n "$owner" ] && [ "$owner" = "$BASHPID" ]
 }
 
 # Fix round 1, FIX D. Bounds the branch where the poller outlives the session

@@ -211,3 +211,30 @@ assert_eq "$(cat "$GUARD_DIR/pmi-leading-zero.out")" "30" "PROBE_MIN_INTERVAL re
 ( PROBE_MIN_INTERVAL=0 . "$ROOT/lib/config.sh"; printf '%s\n' "$PROBE_MIN_INTERVAL" ) > "$GUARD_DIR/pmi-bare-zero.out"
 assert_eq "$(cat "$GUARD_DIR/pmi-bare-zero.out")" "30" "PROBE_MIN_INTERVAL rejects a bare 0, falling back to 30"
 rm -f "$GUARD_DIR/pmi-leading-zero.out" "$GUARD_DIR/pmi-bare-zero.out"
+
+# --- BASHPID vs $$ (fix round 2): acquire_lock must record the lock owner's
+# real, checkable pid, not the pid of a process that has already exited ---
+#
+# main_loop runs as `main_loop &`, a backgrounded subshell. Bash keeps $$
+# pinned to the invoking (launcher) shell's pid even inside that subshell,
+# while BASHPID reports the subshell's own, actual OS pid. Recording $$
+# recorded a pid that is dead within milliseconds of backgrounding, so every
+# later poller found a "dead" owner and reclaimed a lock that was, in fact,
+# still legitimately held; that produced the same "poll: reclaiming stale
+# lock from pid NNNNN" storm fingerprint as the probe recursion, but from an
+# unrelated cause. Demonstrated here without running a real main_loop: a
+# bare backgrounded subshell calling acquire_lock directly, held open with a
+# short sleep so its pid stays live long enough to assert against.
+rm -rf "$LOCK_FILE"
+( acquire_lock; sleep 2 ) &
+subshell_pid=$!
+tries=0
+while [ ! -s "$LOCK_FILE/pid" ] && [ "$tries" -lt 20 ]; do sleep 0.1; tries=$((tries + 1)); done
+recorded=$(cat "$LOCK_FILE/pid" 2>/dev/null)
+assert_eq "$recorded" "$subshell_pid" "acquire_lock records the backgrounded subshell's own pid (BASHPID), matching what \$! sees from outside it"
+assert_eq "$([ "$recorded" = "$$" ] && echo same || echo different)" "different" "the recorded pid is not this test shell's \$$, proving BASHPID rather than \$\$ was recorded"
+kill -0 "$recorded" 2>/dev/null
+assert_eq "$?" "0" "the recorded pid still names a live process (the old \$\$ bug would have recorded an already-dead launcher pid instead)"
+wait "$subshell_pid" 2>/dev/null
+rm -rf "$LOCK_FILE"
+
