@@ -194,6 +194,16 @@ chmod +x "$PROBE_DIR/bin/claude"
 PROBE_OUT="$PROBE_DIR/poller.out"
 : > "$PROBE_OUT"
 
+# Killing $poller_pid below only kills the launcher subshell, not the
+# `main_loop &` grandchild it would spawn in the regression scenario (early
+# exit removed). Killing a process group is not portable, so instead make
+# sure that grandchild cannot outlive this test even if the kill misses it:
+# pre-seed a STALE GATE_SEEN_STAMP so gate_idle is true on main_loop's very
+# first iteration and it exits on its own. Without this, an orphaned loop in
+# the regression scenario runs forever, since nothing else ever touches
+# PROBE_DIR's gate-seen stamp to make it look idle.
+printf '%s\n' "$(( $(date +%s) - 999999 ))" > "$PROBE_DIR/gate-seen"
+
 (
   PATH="$PROBE_DIR/bin:$PATH" \
   GUARD_DIR="$PROBE_DIR" LOCK_FILE="$PROBE_DIR/guard.lock" LOG_FILE="$PROBE_DIR/guard.log" \
@@ -267,9 +277,13 @@ rm -f "$GUARD_DIR/pmi-leading-zero.out" "$GUARD_DIR/pmi-bare-zero.out"
 # lock from pid NNNNN" storm fingerprint as the probe recursion, but from an
 # unrelated cause. Demonstrated here without running a real main_loop: a
 # bare backgrounded subshell calling acquire_lock directly, held open with a
-# short sleep so its pid stays live long enough to assert against.
+# short sleep so its pid stays live long enough to assert against. 5 seconds,
+# not 2: the pid-file wait loop just above can itself take up to ~2 seconds
+# in its worst case, and a 2-second hold left too little margin on a loaded
+# machine, where the subshell could exit before the kill -0 checks below
+# even ran, producing a false FAIL unrelated to the code under test.
 rm -rf "$LOCK_FILE"
-( acquire_lock; sleep 2 ) &
+( acquire_lock; sleep 5 ) &
 subshell_pid=$!
 tries=0
 while [ ! -s "$LOCK_FILE/pid" ] && [ "$tries" -lt 20 ]; do sleep 0.1; tries=$((tries + 1)); done

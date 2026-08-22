@@ -233,9 +233,17 @@ main_loop() {
   # if we still own it: if a racing reclaim already took it (see own_lock),
   # unconditionally removing it here would delete the new owner's live lock
   # out from under them.
+  #
+  # own_lock must be invoked DIRECTLY here, never inside a command
+  # substitution: $(own_lock) would run it in a forked subshell, where
+  # $BASHPID is that subshell's OWN pid, not main_loop's, so the comparison
+  # inside own_lock would always fail. That failure mode is silent (own_lock
+  # just always returns false), which makes it exactly the kind of thing an
+  # unrelated tidy-up could introduce later without anyone noticing.
   trap 'own_lock && rm -rf "$LOCK_FILE" 2>/dev/null; :' EXIT INT TERM
 
   while :; do
+    # Same rule as the trap above: call own_lock directly, not via $(...).
     if ! own_lock; then
       guard_log "poll: lost lock, exiting"
       exit 0
