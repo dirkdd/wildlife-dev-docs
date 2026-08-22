@@ -206,3 +206,21 @@ assert_eq "$([ -n "$out" ] && echo present || echo empty)" "present" "the first 
 
 out2=$(payload Bash | bash "$ROOT/hooks/usage-gate")
 assert_eq "$out2" "" "second warn inside the throttle window is silent"
+
+# --- Probe-recursion fix: a probe session must never be gated ---
+#
+# `/usage` issues no tool calls today, so this path is not reachable yet, but
+# if that ever changed, a frozen probe could never refresh the state it
+# exists to produce, deadlocking the sensor against itself. Fabricate a
+# FREEZE-band state (99% with a future reset) so this would actually hold if
+# the early exit were missing, rather than passing by accident because
+# nothing was there to hold in the first place. The reset is only a few
+# seconds out (SLEEP_INCREMENT=1 is already exported for this file) so a
+# regression degrades this test to a short hang instead of an indefinite one.
+write_state 99 "$(( $(date +%s) + 3 ))"
+start=$(date +%s)
+out=$(payload Bash | USAGE_GUARD_PROBE=1 bash "$ROOT/hooks/usage-gate"); code=$?
+elapsed=$(( $(date +%s) - start ))
+assert_eq "$code" "0" "USAGE_GUARD_PROBE=1 exits 0 even in the freeze band"
+assert_eq "$out" "" "USAGE_GUARD_PROBE=1 emits zero bytes on stdout even in the freeze band"
+assert_eq "$([ "$elapsed" -le 2 ] && echo fast || echo slow)" "fast" "USAGE_GUARD_PROBE=1 returns immediately instead of entering the freeze wait"

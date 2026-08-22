@@ -158,3 +158,140 @@ gate_idle
 assert_eq "$?" "0" "a heartbeat older than GATE_IDLE_TIMEOUT is idle"
 
 rm -f "$GATE_SEEN_STAMP"
+
+# --- Probe-recursion fix: USAGE_GUARD_PROBE sentinel ---
+#
+# The probe (`claude -p "/usage"`) starts a brand new Claude Code session,
+# and that child session's own SessionStart hook launches another poller,
+# which probes again, unbounded. This is the regression test: run
+# usage-poller as a real program (not sourced), the way SessionStart does,
+# with the sentinel a probe-launched session would carry. It must exit 0
+# immediately and do no work at all, not even acquire the lock or log.
+# Isolated into its own GUARD_DIR so a pre-existing guard.log from the
+# lock-reclaim assertions above cannot mask a regression.
+#
+# Bounded, not awaited via command substitution: `main_loop &` backgrounds a
+# subshell that inherits this process's stdout, so `out=$(... bash
+# usage-poller)` would block on EOF from that fd until the subshell exits,
+# which (absent the early exit) only happens after GATE_IDLE_TIMEOUT or a
+# real crash. A removed early exit must fail this test, not hang the suite:
+# output goes to a file, the invocation is backgrounded from THIS shell
+# instead, and this test polls kill -0 for a bounded number of iterations
+# before asserting on exit rather than waiting on the pipe.
+#
+# A stub `claude` is put on PATH for this one invocation. If the early exit
+# were ever removed, main_loop would eventually reach run_probe, which would
+# try to launch a real `claude -p "/usage"` session; the stub makes that
+# call to a fake CLI even in that broken-code scenario, so this regression
+# test can never itself become the thing that spawns a real probe session.
+PROBE_DIR="$GUARD_DIR/probe-sentinel"
+rm -rf "$PROBE_DIR"; mkdir -p "$PROBE_DIR/bin"
+cat > "$PROBE_DIR/bin/claude" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+chmod +x "$PROBE_DIR/bin/claude"
+PROBE_OUT="$PROBE_DIR/poller.out"
+: > "$PROBE_OUT"
+
+# Killing $poller_pid below only kills the launcher subshell, not the
+# `main_loop &` grandchild it would spawn in the regression scenario (early
+# exit removed). Killing a process group is not portable, so instead make
+# sure that grandchild cannot outlive this test even if the kill misses it:
+# pre-seed a STALE GATE_SEEN_STAMP so gate_idle is true on main_loop's very
+# first iteration and it exits on its own. Without this, an orphaned loop in
+# the regression scenario runs forever, since nothing else ever touches
+# PROBE_DIR's gate-seen stamp to make it look idle.
+printf '%s\n' "$(( $(date +%s) - 999999 ))" > "$PROBE_DIR/gate-seen"
+
+(
+  PATH="$PROBE_DIR/bin:$PATH" \
+  GUARD_DIR="$PROBE_DIR" LOCK_FILE="$PROBE_DIR/guard.lock" LOG_FILE="$PROBE_DIR/guard.log" \
+  USAGE_GUARD_PROBE=1 bash "$ROOT/hooks/usage-poller" > "$PROBE_OUT" 2>&1
+) &
+poller_pid=$!
+
+tries=0
+while kill -0 "$poller_pid" 2>/dev/null && [ "$tries" -lt 10 ]; do
+  sleep 0.2
+  tries=$((tries + 1))
+done
+
+if kill -0 "$poller_pid" 2>/dev/null; then
+  kill -9 "$poller_pid" 2>/dev/null
+  wait "$poller_pid" 2>/dev/null
+  assert_eq "did-not-exit" "exited" "USAGE_GUARD_PROBE=1 makes usage-poller exit promptly instead of hanging (it did not; a stray process had to be killed)"
+else
+  wait "$poller_pid"
+  code=$?
+  assert_eq "$code" "0" "USAGE_GUARD_PROBE=1 makes usage-poller exit 0 immediately"
+fi
+
+out=$(cat "$PROBE_OUT" 2>/dev/null)
+assert_eq "$out" "" "USAGE_GUARD_PROBE=1 usage-poller prints nothing"
+assert_eq "$([ -e "$PROBE_DIR/guard.lock" ] && echo present || echo absent)" "absent" "USAGE_GUARD_PROBE=1 writes no lock directory"
+assert_eq "$([ -s "$PROBE_DIR/guard.log" ] && echo present || echo absent)" "absent" "USAGE_GUARD_PROBE=1 writes no guard.log line"
+rm -rf "$PROBE_DIR"
+
+# --- Probe-recursion fix: probe_due backstop (lib/config.sh) ---
+
+PROBE_STAMP="$GUARD_DIR/last-probe"
+rm -f "$PROBE_STAMP"
+probe_due "$(date +%s)"
+assert_eq "$?" "0" "probe_due returns 0 when no stamp exists"
+
+probe_due "$(date +%s)"
+assert_eq "$?" "1" "probe_due returns 1 when the stamp is newer than PROBE_MIN_INTERVAL"
+
+rm -f "$PROBE_STAMP"
+now=$(date +%s)
+probe_due "$now"
+assert_eq "$(cat "$PROBE_STAMP" 2>/dev/null)" "$now" "probe_due writes the stamp before returning 0"
+probe_due "$now"
+assert_eq "$?" "1" "a second caller in the same second cannot also probe"
+
+rm -f "$PROBE_STAMP"
+printf '%s\n' "$(( $(date +%s) - PROBE_MIN_INTERVAL - 5 ))" > "$PROBE_STAMP"
+probe_due "$(date +%s)"
+assert_eq "$?" "0" "probe_due returns 0 once the stamp is older than PROBE_MIN_INTERVAL"
+rm -f "$PROBE_STAMP"
+
+# PROBE_MIN_INTERVAL screening, same shape as the other bash-arithmetic
+# consumers in lib/config.sh.
+( PROBE_MIN_INTERVAL=010 . "$ROOT/lib/config.sh"; printf '%s\n' "$PROBE_MIN_INTERVAL" ) > "$GUARD_DIR/pmi-leading-zero.out"
+assert_eq "$(cat "$GUARD_DIR/pmi-leading-zero.out")" "30" "PROBE_MIN_INTERVAL rejects a leading-zero value, falling back to 30"
+
+( PROBE_MIN_INTERVAL=0 . "$ROOT/lib/config.sh"; printf '%s\n' "$PROBE_MIN_INTERVAL" ) > "$GUARD_DIR/pmi-bare-zero.out"
+assert_eq "$(cat "$GUARD_DIR/pmi-bare-zero.out")" "30" "PROBE_MIN_INTERVAL rejects a bare 0, falling back to 30"
+rm -f "$GUARD_DIR/pmi-leading-zero.out" "$GUARD_DIR/pmi-bare-zero.out"
+
+# --- BASHPID vs $$ (fix round 2): acquire_lock must record the lock owner's
+# real, checkable pid, not the pid of a process that has already exited ---
+#
+# main_loop runs as `main_loop &`, a backgrounded subshell. Bash keeps $$
+# pinned to the invoking (launcher) shell's pid even inside that subshell,
+# while BASHPID reports the subshell's own, actual OS pid. Recording $$
+# recorded a pid that is dead within milliseconds of backgrounding, so every
+# later poller found a "dead" owner and reclaimed a lock that was, in fact,
+# still legitimately held; that produced the same "poll: reclaiming stale
+# lock from pid NNNNN" storm fingerprint as the probe recursion, but from an
+# unrelated cause. Demonstrated here without running a real main_loop: a
+# bare backgrounded subshell calling acquire_lock directly, held open with a
+# short sleep so its pid stays live long enough to assert against. 5 seconds,
+# not 2: the pid-file wait loop just above can itself take up to ~2 seconds
+# in its worst case, and a 2-second hold left too little margin on a loaded
+# machine, where the subshell could exit before the kill -0 checks below
+# even ran, producing a false FAIL unrelated to the code under test.
+rm -rf "$LOCK_FILE"
+( acquire_lock; sleep 5 ) &
+subshell_pid=$!
+tries=0
+while [ ! -s "$LOCK_FILE/pid" ] && [ "$tries" -lt 20 ]; do sleep 0.1; tries=$((tries + 1)); done
+recorded=$(cat "$LOCK_FILE/pid" 2>/dev/null)
+assert_eq "$recorded" "$subshell_pid" "acquire_lock records the backgrounded subshell's own pid (BASHPID), matching what \$! sees from outside it"
+assert_eq "$([ "$recorded" = "$$" ] && echo same || echo different)" "different" "the recorded pid is not this test shell's \$$, proving BASHPID rather than \$\$ was recorded"
+kill -0 "$recorded" 2>/dev/null
+assert_eq "$?" "0" "the recorded pid still names a live process (the old \$\$ bug would have recorded an already-dead launcher pid instead)"
+wait "$subshell_pid" 2>/dev/null
+rm -rf "$LOCK_FILE"
+

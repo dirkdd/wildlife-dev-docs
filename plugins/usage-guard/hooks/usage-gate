@@ -21,6 +21,13 @@ LIB="$HOOK_DIR/../lib"
 
 guard_disabled && exit 0
 
+# A probe session (see usage-poller's USAGE_GUARD_PROBE check) must never be
+# gated. `/usage` issues no tool calls today, so this path is not yet
+# reachable, but if that ever changes, a frozen probe could never refresh
+# state, and the system would deadlock: the sensor would be waiting on the
+# very reading it exists to produce.
+[ "${USAGE_GUARD_PROBE:-}" = "1" ] && exit 0
+
 # The top-level tool_name, not any "tool_name" string nested inside
 # tool_input (e.g. a Write of a fixture payload). A greedy-.* sed pattern
 # binds to the LAST match on a single-line payload; grep -o returns matches

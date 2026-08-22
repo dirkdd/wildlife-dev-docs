@@ -8,6 +8,23 @@
 # just wrote. Reading the cache is more reliable than parsing the human readable
 # probe output, which carries a localised date and a timezone name.
 
+# The probe below starts a brand new Claude Code session. Without this check,
+# that child session's own SessionStart hook launches another poller, which
+# probes, which starts another session, unbounded. USAGE_GUARD_PROBE marks a
+# probe-launched session so its poller stands down before touching the lock,
+# the log, or any state. This must run before anything else in the file,
+# including sourcing the libs, so a probe session's poller does zero work.
+#
+# Guarded on POLLER_LIB_ONLY being unset: `exit` in a file that is being
+# dot-sourced (as the test suite does via `POLLER_LIB_ONLY=1 . usage-poller`)
+# exits the SOURCING shell, not just this file. Without this guard, running
+# the test suite in an environment that happened to carry
+# USAGE_GUARD_PROBE=1 would kill test_poller.sh at this line having printed
+# zero assertions, and run-tests would report the suite green anyway since
+# it counts printed "ok" lines rather than checking against an expected
+# count.
+[ -z "${POLLER_LIB_ONLY:-}" ] && [ "${USAGE_GUARD_PROBE:-}" = "1" ] && exit 0
+
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HOOK_DIR/../lib"
 
@@ -67,8 +84,16 @@ write_state_file() {
 # takes no dependencies beyond bash and coreutils. So the probe is backgrounded
 # and watched by hand, one second at a time, up to PROBE_TIMEOUT, rather than
 # left to hang the loop forever on a stalled CLI.
+# Returns 1 (without touching state) when the probe was skipped under
+# PROBE_MIN_INTERVAL, and 0 whenever it actually ran, timed out or not.
+# poll_once relies on that distinction: without it, a skipped probe still
+# fell through to read_cache and write_state_file with a fresh ts, silently
+# republishing the old cached reading as current and defeating
+# STALE_SECONDS for that cycle.
 run_probe() {
-  MSYS_NO_PATHCONV=1 claude -p "/usage" >/dev/null 2>&1 &
+  probe_due "$(date +%s)" || { guard_log "poll: probe skipped, under PROBE_MIN_INTERVAL"; return 1; }
+  guard_log "poll: launching probe session (USAGE_GUARD_PROBE=1)"
+  USAGE_GUARD_PROBE=1 MSYS_NO_PATHCONV=1 claude -p "/usage" >/dev/null 2>&1 &
   local probe_pid=$!
   local waited=0
   while kill -0 "$probe_pid" 2>/dev/null; do
@@ -86,7 +111,7 @@ run_probe() {
 }
 
 poll_once() {
-  run_probe
+  run_probe || { printf '\n'; return 0; }
   local cache pct iso epoch
   cache=$(read_cache)
   [ -n "$cache" ] || { guard_log "poll: cache unreadable"; printf '\n'; return 0; }
@@ -132,7 +157,20 @@ acquire_lock() {
     fi
 
     if mkdir "$LOCK_FILE" 2>/dev/null; then
-      if printf '%s\n' "$$" > "$LOCK_FILE/pid" 2>/dev/null; then
+      # $BASHPID, not $$: main_loop runs inside a `main_loop &` subshell, and
+      # bash keeps $$ pinned to the ORIGINAL script process even inside a
+      # backgrounded subshell, while BASHPID reports the subshell's own,
+      # real OS pid. Recording $$ here recorded the launcher's pid, which
+      # exits within milliseconds of backgrounding main_loop, leaving the
+      # lock naming an already-dead process while the loop it protects keeps
+      # running. Every later poller then correctly found that pid dead and
+      # reclaimed a lock that was, in fact, still legitimately held. That
+      # reclaim-storm fingerprint ("poll: reclaiming stale lock from pid
+      # NNNNN", a fresh pid every time) looks identical to the probe-
+      # recursion storm this file's earlier fix addresses, but is a
+      # different bug with a different mechanism, predates it, and would
+      # keep firing after that fix without this change.
+      if printf '%s\n' "$BASHPID" > "$LOCK_FILE/pid" 2>/dev/null; then
         return 0
       fi
       # Could not record ownership: don't hold a lock we can't prove we own.
@@ -159,11 +197,13 @@ acquire_lock() {
 # True only when the pid file under $LOCK_FILE names this process. Used by
 # main_loop to detect that a racing reclaim took the lock out from under it,
 # so a transient double-acquire self-corrects within one iteration instead
-# of two pollers running forever.
+# of two pollers running forever. Compares against $BASHPID, matching
+# acquire_lock: main_loop runs inside a `main_loop &` subshell, so $$ here
+# would name the already-exited launcher, not this loop.
 own_lock() {
   local owner
   owner=$(cat "$LOCK_FILE/pid" 2>/dev/null)
-  [ -n "$owner" ] && [ "$owner" = "$$" ]
+  [ -n "$owner" ] && [ "$owner" = "$BASHPID" ]
 }
 
 # Fix round 1, FIX D. Bounds the branch where the poller outlives the session
@@ -193,9 +233,17 @@ main_loop() {
   # if we still own it: if a racing reclaim already took it (see own_lock),
   # unconditionally removing it here would delete the new owner's live lock
   # out from under them.
+  #
+  # own_lock must be invoked DIRECTLY here, never inside a command
+  # substitution: $(own_lock) would run it in a forked subshell, where
+  # $BASHPID is that subshell's OWN pid, not main_loop's, so the comparison
+  # inside own_lock would always fail. That failure mode is silent (own_lock
+  # just always returns false), which makes it exactly the kind of thing an
+  # unrelated tidy-up could introduce later without anyone noticing.
   trap 'own_lock && rm -rf "$LOCK_FILE" 2>/dev/null; :' EXIT INT TERM
 
   while :; do
+    # Same rule as the trap above: call own_lock directly, not via $(...).
     if ! own_lock; then
       guard_log "poll: lost lock, exiting"
       exit 0

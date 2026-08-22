@@ -75,6 +75,17 @@ case "$HOOK_TIMEOUT_SECONDS" in ''|*[!0-9]*|0?*) HOOK_TIMEOUT_SECONDS=19800 ;; e
 : "${PROBE_TIMEOUT:=60}"
 case "$PROBE_TIMEOUT" in ''|*[!0-9]*|0?*) PROBE_TIMEOUT=60 ;; esac
 
+# Backstop for the probe-recursion fix (see usage-poller's USAGE_GUARD_PROBE
+# sentinel). A freshly launched poller probes immediately rather than
+# waiting out interval_for first, which is what made the recursion this
+# guards against tight: roughly one probe every two seconds, unbounded, when
+# the sentinel is missing or ever lost. PROBE_MIN_INTERVAL caps probes to at
+# most one per this many seconds, machine-wide, independent of the sentinel.
+# Screened the same way as the other bash-arithmetic consumers in this file.
+: "${PROBE_STAMP:=$GUARD_DIR/last-probe}"
+: "${PROBE_MIN_INTERVAL:=30}"
+case "$PROBE_MIN_INTERVAL" in ''|*[!0-9]*|0?*) PROBE_MIN_INTERVAL=30 ;; esac
+
 # Fix round 1, FIX B/D. The gate is the sensor's heartbeat: when it finds no
 # usable state it relaunches the poller itself, rather than waiting on the
 # next SessionStart, which may never come again for a session that already
@@ -168,4 +179,13 @@ gate_seen() {
 # relaunch_due and gate_seen above.
 warn_due() {
   stamp_due "$WARN_STAMP" "$WARN_THROTTLE" "$1"
+}
+
+# True (and stamps PROBE_STAMP) when the poller may run a `claude -p
+# "/usage"` probe; false while a prior probe is still inside
+# PROBE_MIN_INTERVAL. Reuses stamp_due, same as relaunch_due, gate_seen and
+# warn_due above. Stamping happens before the caller returns, not after the
+# probe runs, so two callers racing in the same second cannot both probe.
+probe_due() {
+  stamp_due "$PROBE_STAMP" "$PROBE_MIN_INTERVAL" "$1"
 }
