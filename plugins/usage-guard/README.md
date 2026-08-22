@@ -195,6 +195,7 @@ sessions inherit:
 | `SLEEP_INCREMENT` | `20` | How often a frozen hook wakes to recheck the clock and the DISABLE file. |
 | `HOOK_TIMEOUT_SECONDS` | `19800` | Must match the `timeout` value in `hooks/hooks.json`. The freeze releases 120 seconds before this so a timeout overrun leaks one call instead of failing silently. |
 | `PROBE_TIMEOUT` | `60` | Seconds the poller waits for a single usage probe before killing it. |
+| `PROBE_MIN_INTERVAL` | `30` | Minimum seconds between two `claude -p "/usage"` probes, machine-wide. |
 | `RELAUNCH_THROTTLE` | `60` | Minimum seconds between the gate's attempts to relaunch a missing poller. |
 | `GATE_IDLE_TIMEOUT` | `1800` | Seconds without a tool call before the poller assumes no session is left to serve and exits. |
 | `WARN_THROTTLE` | `600` | Minimum seconds between two advisory messages. |
@@ -218,6 +219,13 @@ process runs inside a wrapper process for as long as the freeze lasts.
 
 ## Known limitations
 
+- **The sensor invokes `claude -p "/usage"` in a child session.** That child session
+  goes through Claude Code's normal SessionStart hook wiring like any other session,
+  which would launch a second poller inside it, and that poller's own probe would
+  launch a third, unbounded. The child session is marked with `USAGE_GUARD_PROBE=1`
+  so its SessionStart poller and its PreToolUse gate both stand down immediately and
+  do no work. `PROBE_MIN_INTERVAL` (default 30 seconds) backstops this machine-wide,
+  capping probes to at most one per interval even if the marker were ever lost.
 - **Timeout verified to 900 seconds, not the full 19800.** `HOOK_TIMEOUT_SECONDS`
   carries no documented maximum in the hook schema, and a 900-second hold has been
   observed to survive cleanly well past the 600-second default, so the full

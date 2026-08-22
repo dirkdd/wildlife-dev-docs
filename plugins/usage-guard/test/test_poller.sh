@@ -158,3 +158,56 @@ gate_idle
 assert_eq "$?" "0" "a heartbeat older than GATE_IDLE_TIMEOUT is idle"
 
 rm -f "$GATE_SEEN_STAMP"
+
+# --- Probe-recursion fix: USAGE_GUARD_PROBE sentinel ---
+#
+# The probe (`claude -p "/usage"`) starts a brand new Claude Code session,
+# and that child session's own SessionStart hook launches another poller,
+# which probes again, unbounded. This is the regression test: run
+# usage-poller as a real program (not sourced), the way SessionStart does,
+# with the sentinel a probe-launched session would carry. It must exit 0
+# immediately and do no work at all, not even acquire the lock or log.
+# Isolated into its own GUARD_DIR so a pre-existing guard.log from the
+# lock-reclaim assertions above cannot mask a regression.
+PROBE_DIR="$GUARD_DIR/probe-sentinel"
+rm -rf "$PROBE_DIR"; mkdir -p "$PROBE_DIR"
+out=$(GUARD_DIR="$PROBE_DIR" LOCK_FILE="$PROBE_DIR/guard.lock" LOG_FILE="$PROBE_DIR/guard.log" USAGE_GUARD_PROBE=1 bash "$ROOT/hooks/usage-poller" 2>&1)
+code=$?
+sleep 0.3
+assert_eq "$code" "0" "USAGE_GUARD_PROBE=1 makes usage-poller exit 0 immediately"
+assert_eq "$out" "" "USAGE_GUARD_PROBE=1 usage-poller prints nothing"
+assert_eq "$([ -e "$PROBE_DIR/guard.lock" ] && echo present || echo absent)" "absent" "USAGE_GUARD_PROBE=1 writes no lock directory"
+assert_eq "$([ -s "$PROBE_DIR/guard.log" ] && echo present || echo absent)" "absent" "USAGE_GUARD_PROBE=1 writes no guard.log line"
+rm -rf "$PROBE_DIR"
+
+# --- Probe-recursion fix: probe_due backstop (lib/config.sh) ---
+
+PROBE_STAMP="$GUARD_DIR/last-probe"
+rm -f "$PROBE_STAMP"
+probe_due "$(date +%s)"
+assert_eq "$?" "0" "probe_due returns 0 when no stamp exists"
+
+probe_due "$(date +%s)"
+assert_eq "$?" "1" "probe_due returns 1 when the stamp is newer than PROBE_MIN_INTERVAL"
+
+rm -f "$PROBE_STAMP"
+now=$(date +%s)
+probe_due "$now"
+assert_eq "$(cat "$PROBE_STAMP" 2>/dev/null)" "$now" "probe_due writes the stamp before returning 0"
+probe_due "$now"
+assert_eq "$?" "1" "a second caller in the same second cannot also probe"
+
+rm -f "$PROBE_STAMP"
+printf '%s\n' "$(( $(date +%s) - PROBE_MIN_INTERVAL - 5 ))" > "$PROBE_STAMP"
+probe_due "$(date +%s)"
+assert_eq "$?" "0" "probe_due returns 0 once the stamp is older than PROBE_MIN_INTERVAL"
+rm -f "$PROBE_STAMP"
+
+# PROBE_MIN_INTERVAL screening, same shape as the other bash-arithmetic
+# consumers in lib/config.sh.
+( PROBE_MIN_INTERVAL=010 . "$ROOT/lib/config.sh"; printf '%s\n' "$PROBE_MIN_INTERVAL" ) > "$GUARD_DIR/pmi-leading-zero.out"
+assert_eq "$(cat "$GUARD_DIR/pmi-leading-zero.out")" "30" "PROBE_MIN_INTERVAL rejects a leading-zero value, falling back to 30"
+
+( PROBE_MIN_INTERVAL=0 . "$ROOT/lib/config.sh"; printf '%s\n' "$PROBE_MIN_INTERVAL" ) > "$GUARD_DIR/pmi-bare-zero.out"
+assert_eq "$(cat "$GUARD_DIR/pmi-bare-zero.out")" "30" "PROBE_MIN_INTERVAL rejects a bare 0, falling back to 30"
+rm -f "$GUARD_DIR/pmi-leading-zero.out" "$GUARD_DIR/pmi-bare-zero.out"
