@@ -28,6 +28,11 @@ infer authority from dates, filenames, frontmatter, or link counts. Configure ex
 file scopes for mixed directories, or use the project's more capable checker.
 Generated and historical warnings are separate from active-document debt.
 
+The `kickoff` role treats execution records as historical warnings; it is not an
+authority inference. Classify a maintained, authoritative session briefing as
+`active`, even if its name contains "kickoff". For legacy artifact ownership,
+registers, and traceability, see [legacy document guidance](legacy-documents.md).
+
 When cleanup is authorized, each item needs a disposition: retain active,
 retain historical, superseded with target, consolidate into a named canonical
 page, or remove with authorization and rationale. Preserve raw captures and
@@ -72,6 +77,7 @@ symlinks. Scan roots must exist. Metadata keys are checked; misspellings fail.
     {"path": "agent-notes", "role": "kickoff"}
   ],
   "resolveRoots": ["docs", "agent-notes"],
+  "documentIdFields": ["document_id"],
   "exclude": ["docs/restricted"],
   "externalAssets": [
     {"id": "source-export", "path": "local-input", "owner": "data-owner",
@@ -128,6 +134,23 @@ Wikilinks resolve through relative/root paths, basenames, IDs, and inline/block
 are ambiguous. Arbitrary YAML, heading titles as implicit aliases, HTML/MDX links,
 escaped/nested Markdown grammar, and undefined shortcut references need a
 renderer-specific checker/manual review. The helper is not a full Markdown parser.
+
+Optional `documentIdFields` adds existing flat frontmatter fields to wiki name
+resolution, for example `["document_id", "artifact_id"]`. Omission or an empty
+array preserves the default behavior; `id`, `aliases`, paths, and basenames remain
+available. Field names are case-sensitive, unique, and contain only letters,
+digits, underscores, or hyphens. Nonempty scalar strings are names; arrays and
+nested metadata are not. Matching values uses the same Unicode normalization and
+case folding as other wiki names, with collisions reported as `AMBIGUOUS` when
+referenced. This does not check unreferenced IDs for uniqueness. It does not alter
+Markdown path resolution, renderers, typed-node schemas, `rel_*`, `/vault-map`,
+or `/vault-link`. No frontmatter is added or rewritten.
+
+The flat parser treats plain values literally (`42` and `null` are strings),
+retains inline comments, and does not decode quoted YAML escapes. Use simple
+literal IDs without inline comments. Block scalars, anchors, aliases, and tags
+are unsupported for custom ID fields. For richer existing YAML, prefer project
+tooling or path links; this option is not a YAML schema adapter.
 
 Fenced/indented code, inline code, comments, and frontmatter are masked. Relations
 in frontmatter remain the typed-vault validator's responsibility. Indented list

@@ -30,6 +30,7 @@ Restart Claude Code so the SessionStart hook and `vault-*` skills load.
 - Pre/PostToolUse hooks that block malformed vault writes; a SessionStart hook that injects a vault pointer; a non-blocking SessionEnd hook that nudges learning capture.
 - Operator skills: `/vault-init`, `/vault-new`, `/vault-lint`, `/vault-map`, `/vault-status`, `/vault-link`, `/vault-colorize`, `/vault-tags`, plus the `vault-author` skill.
 - A self-learning loop: `/vault-learn` (capture), `/vault-learnings` (sanitized export), and `/vault-evolve` (turn harvested learnings into proposed plugin upgrades).
+- `/vault-lifecycle` (or `$wildlife-vault:vault-lifecycle` in Codex) for selecting development document types and connecting requirements, designs, specifications, delivery, evidence, and retrospectives in an existing project structure.
 - A three-tier generated index and an Obsidian graph colored by document class via `class/<doc_class>` tags.
 
 ## Per-project config
@@ -40,6 +41,9 @@ Restart Claude Code so the SessionStart hook and `vault-*` skills load.
 
 - [`docs/STANDARD.md`](docs/STANDARD.md) — the full vault standard: node types, the frontmatter contract, relations, the index system, and enforcement.
 - [`docs/seed-from-prd.md`](docs/seed-from-prd.md) — how to bootstrap a vault from a PRD or design brief, including the parallel-seeding protocol.
+- [`references/legacy-documents.md`](references/legacy-documents.md) — preserve existing document types, IDs, canonical homes, and history while adding navigation and traceability.
+- [`references/document-types.md`](references/document-types.md) — document-family lookup, creation triggers, and the questions each artifact should answer.
+- [`references/lifecycle.md`](references/lifecycle.md) — lifecycle workflow, directed document relationships, agent reading routes, and change-impact review.
 - [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — what changed in each release.
 
 ## Requirements

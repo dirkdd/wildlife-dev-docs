@@ -2,6 +2,22 @@
 
 Versions match `.claude-plugin/plugin.json`. Newest first.
 
+## Unreleased
+
+- Added `vault-lifecycle` with a document-family catalog, development lifecycle,
+  directed relationship conventions, and task-specific reading routes. Covers
+  intent, design, specifications, planning, implementation evidence, operations,
+  and retrospectives while preserving each project's formats and ID conventions.
+  This is an authoring/navigation workflow, not automatic lifecycle validation.
+
+- Added legacy document guidance for preserving canonical homes, formats, stable
+  IDs, lifecycle vocabulary, and historical evidence. Authoring, initialization,
+  seeding, and maintenance route to it when existing artifacts are involved.
+- The optional `scripts/vault/maintenance-audit.mjs` policy accepts additive
+  `documentIdFields` for wikilink resolution through existing flat metadata such as
+  `document_id`. Defaults and typed-vault validation are unchanged. Ambiguous names
+  remain debt; Markdown links remain paths. Audits do not rewrite source documents.
+
 ## 0.2.0
 
 The first harvest release: seventeen learnings captured in a deployed 152-node vault, folded back into the plugin. Two themes — the tooling can no longer report a pass it did not earn, and the shipped documents can no longer promise a check that does not exist.

@@ -35,6 +35,95 @@ test('aliases, paths, Markdown reference labels and fragments are resolved witho
   assert.ok(r.findings.every(x=>x.verdict==='RESOLVED'));
   assert.equal(r.findings.filter(x=>x.fragmentStatus==='NOT_VALIDATED').length,2);
 });
+test('legacy identity fields are opt-in and preserve default id, alias and path resolution', t => {
+  const f = fixture(t, {
+    'docs/index.md': '[[typed-id]] [[Friendly name]] [[guide]] [[docs/guide]] [[legacy-id]] [guide](guide.md)',
+    'docs/guide.md': '---\nid: typed-id\naliases: [Friendly name]\ndocument_id: legacy-id\n---\n# Guide\n'
+  });
+  const expected = ['RESOLVED', 'RESOLVED', 'RESOLVED', 'RESOLVED', 'BROKEN', 'RESOLVED'];
+  assert.deepEqual(f.run().findings.map(x => x.verdict), expected);
+  f.write('policy.json', JSON.stringify({ version: 1, scopes: [{ path: 'docs', role: 'active' }], documentIdFields: [] }));
+  assert.deepEqual(f.run().findings.map(x => x.verdict), expected);
+});
+
+test('configured flat identity fields add wiki names without becoming Markdown paths', t => {
+  const f = fixture(t, {
+    'docs/index.md': '[[legacy-id]] [[artifact-7#Missing heading]] [[typed-id]] [[Friendly name]] [[guide]] [[docs/guide]] [id](legacy-id) [guide](guide.md)',
+    'docs/guide.md': '---\nid: typed-id\naliases: [Friendly name]\ndocument_id: " legacy-id "\nartifact_id: artifact-7\n---\n# Guide\n'
+  }, { documentIdFields: ['document_id', 'artifact_id'] });
+  const r = f.run();
+  assert.deepEqual(r.findings.map(x => x.verdict), ['RESOLVED', 'RESOLVED', 'RESOLVED', 'RESOLVED', 'RESOLVED', 'RESOLVED', 'BROKEN', 'RESOLVED']);
+  assert.ok(r.findings.filter(x => x.verdict === 'RESOLVED').every(x => x.candidates.length === 1 && x.candidates[0] === 'docs/guide.md'));
+  assert.equal(r.findings[1].fragmentStatus, 'NOT_VALIDATED');
+});
+
+test('configured identities use only own nonempty string scalars, never lists or nested YAML', t => {
+  const f = fixture(t, {
+    'docs/index.md': '[[inline-list-id]] [[block-list-id]] [[nested-id]] [[{key: flow-id}]] [[inherited-id]] [[own-id]] [[{literal}]] [[%5Bliteral%5D]] [[>]] [[&anchor tagged-id]] [[*anchor]] [[!!str tagged-id]]',
+    'docs/inline-list.md': '---\ndocument_id: [inline-list-id]\n---\n',
+    'docs/block-list.md': '---\ndocument_id:\n  - block-list-id\n---\n',
+    'docs/nested.md': '---\ndocument_id:\n  key: nested-id\n---\n',
+    'docs/flow.md': '---\ndocument_id: {key: flow-id}\n---\n',
+    'docs/inherited.md': '---\n__proto__: [inherited-id]\n---\n',
+    'docs/own.md': '---\nconstructor: own-id\n---\n',
+    'docs/empty.md': '---\ndocument_id: "   "\nartifact_id: ""\n---\n',
+    'docs/quoted-object.md': '---\ndocument_id: "{literal}"\n---\n',
+    'docs/quoted-list.md': '---\ndocument_id: "[literal]"\n---\n',
+    'docs/block-scalar.md': '---\ndocument_id: >\n  folded-id\n---\n',
+    'docs/anchor.md': '---\ndocument_id: &anchor tagged-id\n---\n',
+    'docs/alias.md': '---\ndocument_id: *anchor\n---\n',
+    'docs/tag.md': '---\ndocument_id: !!str tagged-id\n---\n'
+  }, { documentIdFields: ['document_id', 'artifact_id', '0', 'constructor'] });
+  const r = f.run();
+  assert.deepEqual(r.findings.map(x => x.verdict), ['BROKEN', 'BROKEN', 'BROKEN', 'BROKEN', 'BROKEN', 'RESOLVED', 'RESOLVED', 'RESOLVED', 'BROKEN', 'BROKEN', 'BROKEN', 'BROKEN']);
+  assert.deepEqual(r.findings[5].candidates, ['docs/own.md']);
+});
+
+test('custom identities share collision detection with ids, aliases and basenames after Unicode case normalization', t => {
+  const f = fixture(t, {
+    'docs/index.md': '[[CAFE\u0301]] [[same-note]]',
+    'docs/custom.md': '---\ndocument_id: Café\nartifact_id: CAFÉ\n---\n',
+    'docs/another-custom.md': '---\nartifact_id: " CAFE\u0301 "\n---\n',
+    'docs/typed.md': '---\nid: café\n---\n',
+    'docs/aliased.md': '---\naliases: [CAFÉ]\n---\n',
+    'docs/Café.md': '# Basename\n',
+    'docs/one.md': '---\nid: same-note\naliases: [same-note]\ndocument_id: same-note\nartifact_id: same-note\n---\n'
+  }, { documentIdFields: ['document_id', 'artifact_id'] });
+  const r = f.run();
+  assert.equal(r.findings[0].verdict, 'AMBIGUOUS');
+  assert.deepEqual(r.findings[0].candidates, ['docs/Café.md', 'docs/aliased.md', 'docs/another-custom.md', 'docs/custom.md', 'docs/typed.md']);
+  assert.equal(r.findings[1].verdict, 'RESOLVED');
+  assert.deepEqual(r.findings[1].candidates, ['docs/one.md']);
+});
+
+test('configured identities resolve through the CLI without changing file bytes, modes or mtimes', t => {
+  const f = fixture(t, {
+    'docs/index.md': '[[legacy-id]] [[artifact-id]]',
+    'docs/guide.md': '---\ndocument_id: legacy-id\nartifact_id: artifact-id\n---\n# Legacy guide\n'
+  }, { documentIdFields: ['document_id', 'artifact_id'] });
+  const before = snapshot(f.root);
+  const cli = spawnSync(process.execPath, [script, `--project-dir=${f.root}`, '--policy=policy.json', '--strict'], { encoding: 'utf8' });
+  assert.equal(cli.status, 0, cli.stderr);
+  const r = JSON.parse(cli.stdout);
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.findings.length, 2);
+  assert.ok(r.findings.every(x => x.verdict === 'RESOLVED'));
+  assert.deepEqual(snapshot(f.root), before);
+});
+
+test('identity field policy rejects malformed lists, non-flat names and duplicate fields', t => {
+  const policy = documentIdFields => ({ version: 1, scopes: [{ path: 'docs', role: 'active' }], documentIdFields });
+  for (const value of [null, false, 7, 'document_id', {}, [null], [7], [true], [{}], [[]], [''], [' '], [' document_id'], ['document_id '], ['document.id'], ['document/id'], ['document:id'], ['document_id', 'document_id']])
+    assert.throws(() => validatePolicy(policy(value)), /documentIdFields/);
+  assert.deepEqual(validatePolicy(policy(['document_id', 'DOCUMENT_ID', 'artifact-id'])).documentIdFields, ['document_id', 'DOCUMENT_ID', 'artifact-id']);
+  const f = fixture(t, {}, { documentIdFields: ['document_id', 'document_id'] });
+  const before = snapshot(f.root);
+  const cli = spawnSync(process.execPath, [script, `--project-dir=${f.root}`, '--policy=policy.json'], { encoding: 'utf8' });
+  assert.equal(cli.status, 2);
+  assert.match(cli.stderr, /documentIdFields/);
+  assert.deepEqual(snapshot(f.root), before);
+});
+
 test('duplicate aliases, basename collisions, duplicate reference definitions and unknown labels remain debt', t => {
   const f = fixture(t, { 'docs/index.md':'[[Shared]] [[guide]] [x][dupe] [x][missing]',
     'docs/a/guide.md':'---\naliases: [Shared]\n---\n', 'docs/b/guide.md':'---\naliases: [Shared]\n---\n',

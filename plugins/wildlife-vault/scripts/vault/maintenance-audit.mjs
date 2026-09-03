@@ -37,7 +37,7 @@ function onlyKeys(value, allowed, label) {
   for (const key of Object.keys(value)) if (!allowed.includes(key)) throw new Error(`unknown ${label} key: ${key}`);
 }
 export function validatePolicy(p) {
-  onlyKeys(p, ['version', 'scopes', 'resolveRoots', 'exclude', 'externalAssets', 'exceptions', 'baseline'], 'policy');
+  onlyKeys(p, ['version', 'scopes', 'resolveRoots', 'exclude', 'externalAssets', 'exceptions', 'baseline', 'documentIdFields'], 'policy');
   if (p.version !== 1 || !Array.isArray(p.scopes) || !p.scopes.length) throw new Error('policy requires version 1 and nonempty scopes');
   const seen = new Set();
   for (const scope of p.scopes) {
@@ -45,6 +45,15 @@ export function validatePolicy(p) {
     scope.path = relativeName(scope.path);
     if (!roles.has(scope.role) || seen.has(scope.path)) throw new Error('scope role invalid or path duplicated');
     seen.add(scope.path);
+  }
+  if (p.documentIdFields !== undefined) {
+    if (!Array.isArray(p.documentIdFields)) throw new Error('documentIdFields must be an array');
+    const fields = new Set();
+    for (const field of p.documentIdFields) {
+      if (typeof field !== 'string' || !/^[A-Za-z0-9_-]+$/.test(field) || fields.has(field))
+        throw new Error('documentIdFields must contain unique flat frontmatter field names');
+      fields.add(field);
+    }
   }
   for (const key of ['resolveRoots', 'exclude']) {
     if (p[key] !== undefined && !Array.isArray(p[key])) throw new Error(`${key} must be an array`);
@@ -145,12 +154,23 @@ function walk(root, rel, p, out, omitted) {
     walk(root, child, p, out, omitted);
   }
 }
-function documentNames(rel, text) {
+function documentNames(rel, text, documentIdFields = []) {
   const parsed = parseFrontmatter(text);
   const names = [rel.replace(/\.md$/i, ''), path.posix.basename(rel).replace(/\.md$/i, '')];
   if (parsed.ok) {
     if (nonempty(parsed.data.id)) names.push(parsed.data.id);
     if (Array.isArray(parsed.data.aliases)) names.push(...parsed.data.aliases.filter(nonempty));
+    // The shared flat parser leaves flow mappings and block markers as strings.
+    // Inspect raw values so unsupported YAML cannot become a stable identity.
+    const unsupportedFields = new Set();
+    for (const line of parsed.raw.split('\n')) {
+      const entry = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+      if (!entry) continue;
+      unsupportedFields.delete(entry[1]);
+      if (/^[\[\{>|&*!]/.test(entry[2])) unsupportedFields.add(entry[1]);
+    }
+    for (const field of documentIdFields)
+      if (!unsupportedFields.has(field) && Object.hasOwn(parsed.data, field) && nonempty(parsed.data[field])) names.push(parsed.data[field]);
   }
   return names;
 }
@@ -226,7 +246,7 @@ export function audit(projectDir, policyFile, options = {}) {
   for (const rel of resolution) {
     const text = fs.readFileSync(safePath(root, rel), 'utf8');
     contents.set(rel, text);
-    for (const name of documentNames(rel, text)) {
+    for (const name of documentNames(rel, text, p.documentIdFields)) {
       const key = normalized(name), paths = names.get(key) || new Set();
       paths.add(rel); names.set(key, paths);
     }
@@ -286,7 +306,7 @@ export function audit(projectDir, policyFile, options = {}) {
   return { version: 1, files: files.size, resolveFiles: resolution.size, scopes: p.scopes, omitted: [...omitted].sort(),
     limitations: ['Document targets only: heading and block fragments are NOT validated.',
       'Common Markdown inline/reference links and wikilinks; no full Markdown renderer, HTML/MDX links, or URL reachability.',
-      'Names resolve by path, basename, id, and flat frontmatter aliases; case-folded wiki collisions are ambiguous.',
+      'Wiki names resolve by path, basename, id, flat frontmatter aliases, and configured documentIdFields; case-folded collisions are ambiguous.',
       'Frontmatter relations remain the typed-vault validator’s responsibility. No staleness or claim-veracity proof.'],
     findings, ...comparison, exitCode: failed ? 1 : 0 };
 }

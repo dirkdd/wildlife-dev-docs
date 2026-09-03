@@ -5,6 +5,10 @@ allowed-tools: Bash, Read, Edit
 ---
 Read [shared runtime and scope](../../references/runtime.md) before acting.
 
+For a project with existing documents, read [legacy document guidance](../../references/legacy-documents.md).
+Initialization adds a typed graph alongside those sources; it does not migrate them
+or decide their canonical ownership. Maintenance alone does not require init.
+
 Initialize the vault in the current repo. This is the one-time setup that replaces the old installer.
 
 1. Use the requested vault name (default `Knowledge`) and select the current client. Inspect existing config before initializing; reuse an existing vault. The vault will live at `docs/vault/<name>/`.

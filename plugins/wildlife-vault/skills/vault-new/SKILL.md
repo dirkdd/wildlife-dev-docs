@@ -8,7 +8,11 @@ Read [shared runtime and scope](../../references/runtime.md) before acting.
 
 Scaffold and author a new vault node. Steps:
 
-1. Confirm `type` is one of: `concept | module | flow | data | invariant | decision | runbook | guide`. If the user provided a different value, suggest the closest match.
+1. Confirm the request is for a typed vault node. For a PRD, specification, register,
+   existing ADR, or another source artifact, follow [legacy document guidance](../../references/legacy-documents.md)
+   and preserve its project format. If a distilled node is wanted, choose its type
+   from `concept | module | flow | data | invariant | decision | runbook | guide`
+   according to the knowledge being documented.
 
 2. Derive the target folder from `CATEGORY_DIRS` (in the plugin's `scripts/vault/schema.mjs`):
    - concept -> `docs/vault/Knowledge/concepts/`
