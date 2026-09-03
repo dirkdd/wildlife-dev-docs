@@ -96,6 +96,30 @@ test('custom identities share collision detection with ids, aliases and basename
   assert.deepEqual(r.findings[1].candidates, ['docs/one.md']);
 });
 
+test('case and Unicode spellings of one file remain one resolved wiki target', t => {
+  const f = fixture(t, {
+    'docs/index.md': '[[GUIDE]] [[CAFE\u0301]] [[legacy-id]]',
+    'docs/guide.md': '# Guide\n',
+    'docs/Café.md': '---\ndocument_id: legacy-id\n---\n# Café\n'
+  }, { documentIdFields: ['document_id'] });
+  const before = snapshot(f.root), result = f.run();
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(result.findings.map(finding => finding.verdict), ['RESOLVED', 'RESOLVED', 'RESOLVED']);
+  assert.deepEqual(result.findings.map(finding => finding.candidates), [['docs/guide.md'], ['docs/Café.md'], ['docs/Café.md']]);
+  assert.deepEqual(snapshot(f.root), before);
+});
+
+test('distinct files remain ambiguous even when their contents and normalized names match', t => {
+  const f = fixture(t, {
+    'docs/index.md': '[[GUIDE]]',
+    'docs/a/guide.md': '# Same content\n',
+    'docs/b/guide.md': '# Same content\n'
+  });
+  const finding = f.run().findings[0];
+  assert.equal(finding.verdict, 'AMBIGUOUS');
+  assert.deepEqual(finding.candidates, ['docs/a/guide.md', 'docs/b/guide.md']);
+});
+
 test('configured identities resolve through the CLI without changing file bytes, modes or mtimes', t => {
   const f = fixture(t, {
     'docs/index.md': '[[legacy-id]] [[artifact-id]]',
