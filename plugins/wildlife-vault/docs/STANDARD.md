@@ -8,6 +8,17 @@ The vault is a small, typed, validated knowledge graph that lives in the repo at
 
 Every node is a Markdown file with YAML frontmatter (the contract) and a structured body. Nodes are connected by typed `rel_*` relations that render as edges in the Obsidian graph. Generated index files keep navigation cheap as the vault grows.
 
+This contract applies to typed vault nodes. Existing PRDs, ADRs, specifications,
+registers, and evidence may retain their own formats, IDs, lifecycle vocabulary,
+and canonical locations. See [working with existing documentation](../references/legacy-documents.md)
+for source ownership, incremental adoption, and requirement-to-evidence links.
+
+Use `vault-lifecycle` for [document-family selection](../references/document-types.md)
+and [development workflow/navigation](../references/lifecycle.md). PRD, DAT, API,
+QAT, SEC, TST, MIG, and similar artifact families are project conventions, separate
+from this standard's structural node types and `doc_class` enum. Document-level
+relationship labels do not add new `rel_*` keys or automatic graph validation.
+
 ## 2. Node types
 
 | type | folder | role |

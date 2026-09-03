@@ -8,6 +8,13 @@
 
 ## 1. Summary
 
+**Implementation note:** `vault-lifecycle` now provides a guided
+[document-family catalog](../references/document-types.md) and
+[development/navigation workflow](../references/lifecycle.md) with
+[legacy compatibility](../references/legacy-documents.md). This is a partial F2
+authoring capability; automated lifecycle graph generation, atlas freshness gates,
+and the F3 containment decision described below remain proposals.
+
 Today `wildlife-vault` maintains a typed, validated *knowledge graph* that sits **over** a project's documentation and code — nodes distill sources and cite them. It is excellent at capturing *distilled knowledge* but has no opinion about the project's *documents themselves* (the PRD, the specs, the plans, the kickoffs, the trackers, the retros) beyond a one-shot `seed-from-prd`, and no notion of *architecture diagrams* at all.
 
 This PRD adds three things:

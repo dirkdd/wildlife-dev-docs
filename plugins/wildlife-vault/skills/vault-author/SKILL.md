@@ -7,6 +7,10 @@ arguments: [type, title]
 ---
 Read [shared runtime and scope](../../references/runtime.md) before acting.
 
+For an existing document, first use [legacy document guidance](../../references/legacy-documents.md)
+to decide whether to edit its canonical source, link it, or distill a node. Preserve
+external ADRs and artifact IDs; `rel_*` targets must still be vault node IDs.
+
 Author one node at a time. Steps:
 
 1. Pick the `type` (drives the folder via CATEGORY_DIRS and the template). Read `${VAULT_PLUGIN_ROOT}/skills/vault-author/templates/<type>.md`.

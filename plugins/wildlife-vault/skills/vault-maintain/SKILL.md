@@ -8,6 +8,8 @@ Read [shared runtime and scope](../../references/runtime.md) and
 Determine whether the request is a read-only audit, a targeted repair, or an
 explicitly authorized cleanup. Inspect project conventions, the existing checker,
 and the current hub/backlog first. Reuse them when they serve the task.
+For legacy document types, IDs, or mixed authority, use
+[legacy document guidance](../../references/legacy-documents.md).
 
 For projects without an equivalent checker, the optional read-only helper is:
 

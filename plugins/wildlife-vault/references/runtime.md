@@ -6,6 +6,13 @@ present. Do not initialize a second vault or migrate a project's schema merely t
 use this plugin. Ordinary documentation edits need only the relevant conventions
 and changed-link checks; maintenance modes are opt-in.
 
+When adopting existing PRDs, ADRs, registers, or other legacy artifacts, read
+[legacy document guidance](legacy-documents.md). Preserve their canonical homes,
+IDs, formats, and authority; the typed node contract is not a migration requirement.
+
+For document-family selection, development workflows, or requirement-to-evidence
+reading routes, use `vault-lifecycle` and its [lifecycle guide](lifecycle.md).
+
 In command examples, `VAULT_PLUGIN_ROOT` means this installed plugin's root (two
 levels above the skill directory); `VAULT_PROJECT_DIR` is the confirmed consumer
 repository root. Resolve and quote those absolute paths in each command. Claude

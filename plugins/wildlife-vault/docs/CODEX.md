@@ -72,6 +72,9 @@ prove that an already running task has loaded the skills. Start a new task; if
 missing, refresh/restart Codex and inspect discovery errors.
 
 For an existing documentation project, use `$wildlife-vault:vault-maintain` without running init.
+For choosing development document types or tracing requirements through designs,
+specifications, delivery, evidence, and retrospectives, use
+`$wildlife-vault:vault-lifecycle`; it preserves existing project formats and IDs.
 For an explicitly requested new typed vault, `$wildlife-vault:vault-init` selects `--client=codex`
 and adds a marker-guarded AGENTS section; it does not modify CLAUDE.md. If the repo
 already has a custom vault root, reuse it rather than creating another one.

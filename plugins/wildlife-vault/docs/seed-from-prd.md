@@ -6,6 +6,11 @@ How to bootstrap an empty vault into a useful knowledge graph from a single PRD 
 
 A PRD is dense with exactly the things the vault wants: concepts, modules, flows, data shapes, decisions, invariants. Seeding extracts them into typed nodes so future sessions navigate the knowledge instead of re-reading the PRD.
 
+For an existing artifact set, first read [legacy document guidance](../references/legacy-documents.md).
+Keep the PRD, ADRs, specifications, and registers in their canonical homes with their
+original IDs and lifecycle states. Seed only the durable knowledge needed, cite its
+sources, and preserve source authority; a distilled node is not a replacement PRD.
+
 ## Steps
 
 1. **Point the agent at the PRD.** `seed the vault from <path-to-prd>` (or paste it).
