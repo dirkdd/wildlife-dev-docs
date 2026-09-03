@@ -5,7 +5,7 @@ A drop-in, agent-maintained knowledge base for a code project, packaged for Clau
 ## Codex
 
 Build and install the tested Codex package using [CODEX.md](docs/CODEX.md).
-It includes the same skills and scripts, plus `$vault-maintain` for opt-in lifecycle
+It includes the same skills and scripts, plus `$wildlife-vault:vault-maintain` for opt-in lifecycle
 and link-debt work. Codex runs checks explicitly and installs no hooks. Existing
 project conventions take precedence; a typed vault is optional for maintenance.
 

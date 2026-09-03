@@ -11,7 +11,8 @@ levels above the skill directory); `VAULT_PROJECT_DIR` is the confirmed consumer
 repository root. Resolve and quote those absolute paths in each command. Claude
 may supply `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PROJECT_DIR`; Codex does not require
 those variables. Prefer an explicit `--project-dir` over inherited environment.
-Invoke skills by their available name (`/vault-*` in Claude, `$vault-*` in Codex).
+Invoke skills by their discovered name. Codex namespaces these plugin skills,
+for example `$wildlife-vault:vault-maintain`; Claude keeps its existing commands.
 
 Claude's existing hooks are unchanged. The generated Codex package has **no
 hooks**: run the scripts explicitly. PreToolUse sees full Write content, but Edit
