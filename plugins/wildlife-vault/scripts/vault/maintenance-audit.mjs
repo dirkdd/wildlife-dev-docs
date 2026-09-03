@@ -154,6 +154,12 @@ function walk(root, rel, p, out, omitted) {
     walk(root, child, p, out, omitted);
   }
 }
+// Case-insensitive filesystems can accept several spellings of one file, and
+// realpath may preserve the caller's spelling. Compare filesystem identities.
+function fileIdentity(abs) {
+  const stat = fs.statSync(abs, { bigint: true });
+  return `${stat.dev}:${stat.ino}`;
+}
 function documentNames(rel, text, documentIdFields = []) {
   const parsed = parseFrontmatter(text);
   const names = [rel.replace(/\.md$/i, ''), path.posix.basename(rel).replace(/\.md$/i, '')];
@@ -242,10 +248,12 @@ export function audit(projectDir, policyFile, options = {}) {
   for (const rel of p.resolveRoots || p.scopes.map(s => s.path)) walk(root, relativeName(rel), p, resolution, omitted);
   for (const rel of files) resolution.add(rel);
   if (!files.size) throw new Error('audit measured zero Markdown files');
-  const contents = new Map(), names = new Map();
+  const contents = new Map(), names = new Map(), identityPaths = new Map();
   for (const rel of resolution) {
     const text = fs.readFileSync(safePath(root, rel), 'utf8');
     contents.set(rel, text);
+    const identity = fileIdentity(safePath(root, rel));
+    if (!identityPaths.has(identity)) identityPaths.set(identity, rel);
     for (const name of documentNames(rel, text, p.documentIdFields)) {
       const key = normalized(name), paths = names.get(key) || new Set();
       paths.add(rel); names.set(key, paths);
@@ -284,8 +292,14 @@ export function audit(projectDir, policyFile, options = {}) {
           }
           if (link.kind === 'wiki') for (const rel of names.get(normalized(target.replace(/\.md$/i, ''))) || []) candidates.add(rel);
         }
-        f.candidates = [...candidates].sort();
-        f.verdict = candidates.size > 1 ? 'AMBIGUOUS' : candidates.size === 1 ? 'RESOLVED' : blocked || possiblePaths.every(r => !r) ? 'BLOCKED_PATH' : 'BROKEN';
+        const physicalCandidates = new Map();
+        for (const rel of candidates) {
+          const identity = fileIdentity(safePath(root, rel));
+          // Prefer the spelling observed in the document inventory.
+          physicalCandidates.set(identity, identityPaths.get(identity) || rel);
+        }
+        f.candidates = [...physicalCandidates.values()].sort();
+        f.verdict = physicalCandidates.size > 1 ? 'AMBIGUOUS' : physicalCandidates.size === 1 ? 'RESOLVED' : blocked || possiblePaths.every(r => !r) ? 'BLOCKED_PATH' : 'BROKEN';
         if (f.verdict === 'BROKEN' && exception?.verdict === 'FORWARD') {
           f.owner = exception.owner; f.expires = exception.expires;
           if (today <= exception.expires) f.verdict = 'FORWARD';
