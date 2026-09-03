@@ -2,6 +2,12 @@
 
 Public Claude Code marketplace (`wildlife-ai`) hosting the **wildlife-vault** and **usage-guard** plugins. wildlife-vault is an agent-maintained, Obsidian-compatible knowledge vault for code projects. usage-guard holds long-running sessions at the edge of their rolling 5-hour usage window instead of letting them run it out.
 
+## Codex
+
+Wildlife Vault also supports Codex through a generated, hook-free package built
+from the same skill and script sources. See [installation, update, and rollback](plugins/wildlife-vault/docs/CODEX.md).
+The Codex package contains only wildlife-vault; usage-guard remains Claude-only.
+
 ## Use it
 
 Inside a Claude Code session (slash commands):

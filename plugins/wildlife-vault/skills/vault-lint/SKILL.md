@@ -1,9 +1,11 @@
 ---
 name: vault-lint
-description: Run the full vault health check (schema, structural, graph, and index-drift gates) and report or fix violations. Use when asked to lint, validate, or check the health of docs/vault/Knowledge.
+description: "Run the full vault health check (schema, structural, graph, and index-drift gates) and report or fix violations. Use when asked to lint, validate, or check the health of docs/vault/Knowledge."
 allowed-tools: Bash, Read, Edit
 ---
-Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/vault/validate.mjs" --all --project-dir="${CLAUDE_PROJECT_DIR}"`. It validates every node and the generated indexes.
+Read [shared runtime and scope](../../references/runtime.md) before acting.
+
+Run `node "${VAULT_PLUGIN_ROOT}/scripts/vault/validate.mjs" --all --project-dir="${VAULT_PROJECT_DIR}"`. It validates every node and the generated indexes.
 
 - Hard errors (exit 1): report each with its file, and offer to fix the offending frontmatter or run `/vault-map` if the failure is index-drift (coverage / missing sub-index). A missing vault root, or markdown files that produced zero parsed nodes, is also hard — that run measured nothing.
 - Soft warnings (exit 0): summarize and offer to address. The complete set is `tag-namespace`, `stale-updated`, `diataxis-mismatch`, `code-ref` (a `code_refs` path that is gone, or a `#symbol` that drifted), `dangling-link` (a `[[wikilink]]` resolving to no note, alias, or file — grouped by target), and `prose-claim` (a sentence asserting a filesystem state the filesystem contradicts). Nothing else is checked. The last three are whole-vault: they run under `--all` only, never from the write hook.
