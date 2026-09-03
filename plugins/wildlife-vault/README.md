@@ -1,11 +1,18 @@
 # wildlife-vault
 
-A drop-in, agent-maintained knowledge base for a code project, packaged as a Claude Code plugin. It gives Claude a navigable second brain: a small, typed, validated set of Markdown nodes it reads before touching code and writes back to after learning something durable. Obsidian-compatible, enforced by hooks, generated indexes, zero runtime dependencies (pure Node).
+A drop-in, agent-maintained knowledge base for a code project, packaged for Claude Code and Codex. It gives Claude a navigable second brain: a small, typed, validated set of Markdown nodes it reads before touching code and writes back to after learning something durable. Obsidian-compatible, enforced by hooks, generated indexes, zero runtime dependencies (pure Node).
 
-## Install
+## Codex
+
+Build and install the tested Codex package using [CODEX.md](docs/CODEX.md).
+It includes the same skills and scripts, plus `$vault-maintain` for opt-in lifecycle
+and link-debt work. Codex runs checks explicitly and installs no hooks. Existing
+project conventions take precedence; a typed vault is optional for maintenance.
+
+## Install (Claude Code)
 
 ```
-/plugin marketplace add wildlife-ai/wildlife-dev-docs
+/plugin marketplace add dirkdd/wildlife-dev-docs
 /plugin install wildlife-vault@wildlife-ai
 ```
 
@@ -38,5 +45,5 @@ Restart Claude Code so the SessionStart hook and `vault-*` skills load.
 ## Requirements
 
 - Node 18+ (uses `fs.cpSync`).
-- Claude Code (for skills and hooks).
+- Claude Code (skills and hooks) or Codex (skills and explicit scripts).
 - Optional: Obsidian 1.4+ to browse the graph.

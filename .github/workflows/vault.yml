@@ -1,0 +1,22 @@
+name: Wildlife Vault
+on:
+  pull_request:
+    paths: ['plugins/wildlife-vault/**', 'scripts/build-codex.mjs', '.github/workflows/vault.yml']
+  push:
+    branches: [master]
+    paths: ['plugins/wildlife-vault/**', 'scripts/build-codex.mjs', '.github/workflows/vault.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [18, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '${{ matrix.node }}'
+      - run: node --test plugins/wildlife-vault/test/*.test.mjs
+      - run: node scripts/build-codex.mjs --out="$RUNNER_TEMP/codex-vault"

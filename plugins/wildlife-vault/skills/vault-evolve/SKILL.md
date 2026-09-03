@@ -1,8 +1,10 @@
 ---
 name: vault-evolve
-description: Turn a pasted vault-learnings digest into concrete, human-approved upgrades to the wildlife-vault plugin. Use in the wildlife-vault plugin repo when you have a learnings digest exported from a deployed project. Proposes changes; never applies them without approval.
+description: "Turn a pasted vault-learnings digest into concrete, human-approved upgrades to the wildlife-vault plugin. Use in the wildlife-vault plugin repo when you have a learnings digest exported from a deployed project. Proposes changes; never applies them without approval."
 allowed-tools: Read, Grep, Glob, Edit, Write, Bash
 ---
+Read [shared runtime and scope](../../references/runtime.md) before acting.
+
 Review a pasted learnings digest and propose concrete plugin changes. Run this ONLY in the wildlife-vault plugin repo (it edits the plugin's own files). Propose first; apply only after the user approves each change.
 
 1. Parse the digest: for each `## learning-<id> — <title>` block, read its `kind`, `summary`, `Generalized insight`, and `Proposed plugin change`. If a block carries a proprietary-signal warning, surface it and ask the user to confirm the text is safe before proceeding.

@@ -1,9 +1,11 @@
 ---
 name: vault-tags
-description: Audit and normalize tags in docs/vault/Knowledge against the governed taxonomy in _meta/taxonomy.md. Use when asked to check tags, normalize tag namespaces, or audit tag usage across the vault.
+description: "Audit and normalize tags in docs/vault/Knowledge against the governed taxonomy in _meta/taxonomy.md. Use when asked to check tags, normalize tag namespaces, or audit tag usage across the vault."
 allowed-tools: Bash, Read, Edit
 ---
-Run the vault-lint skill (or `node "${CLAUDE_PLUGIN_ROOT}/scripts/vault/validate.mjs" --all --project-dir="${CLAUDE_PROJECT_DIR}"`) and filter the output for tag-related soft warnings: unknown namespace, value not in taxonomy whitelist, misspelled domain slug.
+Read [shared runtime and scope](../../references/runtime.md) before acting.
+
+Run the vault-lint skill (or `node "${VAULT_PLUGIN_ROOT}/scripts/vault/validate.mjs" --all --project-dir="${VAULT_PROJECT_DIR}"`) and filter the output for tag-related soft warnings: unknown namespace, value not in taxonomy whitelist, misspelled domain slug.
 
 Act on the output:
 - Unknown namespace (e.g., `feature/x` instead of `domain/x`): report the node and the offending tag; offer to rename to the correct namespace.

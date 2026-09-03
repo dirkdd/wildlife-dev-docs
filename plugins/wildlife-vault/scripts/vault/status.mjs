@@ -88,10 +88,13 @@ export function main() {
     process.stderr.write(`vault:status — no manifest at ${manifestPath}; skipping stale-source check\n`);
   }
   const currentHashes = {};
+  const unavailable = [];
   for (const s of manifest.sources || []) {
-    // A source whose file no longer exists is excluded from currentHashes and therefore not reported as stale here (manifest-cleanup concern, not a staleness concern).
-    if (nodeFs.existsSync(s.path)) currentHashes[s.path] = hashFile(s.path);
+    const sourcePath = path.resolve(vault.projectDir, s.path);
+    if (nodeFs.existsSync(sourcePath)) currentHashes[s.path] = hashFile(sourcePath);
+    else unavailable.push(s.path);
   }
+  for (const source of unavailable) process.stderr.write(`[unavailable source] ${source} — classify historical/external intent before changing evidence\n`);
   const stale = staleSources(manifest, currentHashes);
   const code = codeRefIssues(nodes, nodeFs, { baseDir: vault.projectDir });
   for (const s of stale) process.stderr.write(`[stale source] ${s.path} -> nodes: ${s.nodes.join(", ")}\n`);

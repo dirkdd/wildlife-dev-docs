@@ -1,0 +1,25 @@
+{
+  "name": "wildlife-vault",
+  "version": "0.3.0",
+  "description": "Project-aware documentation skills, typed vaults, and read-only lifecycle and link audits.",
+  "author": {
+    "name": "Wildlife AI"
+  },
+  "repository": "https://github.com/dirkdd/wildlife-dev-docs",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Wildlife Vault",
+    "shortDescription": "Maintain project documentation with evidence",
+    "longDescription": "Shared documentation skills for Claude and Codex, with explicit validation and project-specific conventions. Codex packaging excludes hooks.",
+    "developerName": "Wildlife AI",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Audit this project\u2019s documentation without changing files.",
+      "Update the canonical guide for this change."
+    ]
+  }
+}

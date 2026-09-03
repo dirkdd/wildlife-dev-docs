@@ -1,9 +1,11 @@
 ---
 name: vault-new
-description: Scaffold a new vault node of a given type and title with prefilled frontmatter, then author the body. Use when asked to create a new vault node, document a concept, module, flow, data shape, invariant, decision, runbook, or guide.
+description: "Scaffold a new vault node of a given type and title with prefilled frontmatter, then author the body. Use when asked to create a new vault node, document a concept, module, flow, data shape, invariant, decision, runbook, or guide."
 allowed-tools: Read, Write, Edit, Bash
 arguments: [type, title]
 ---
+Read [shared runtime and scope](../../references/runtime.md) before acting.
+
 Scaffold and author a new vault node. Steps:
 
 1. Confirm `type` is one of: `concept | module | flow | data | invariant | decision | runbook | guide`. If the user provided a different value, suggest the closest match.
@@ -21,7 +23,7 @@ Scaffold and author a new vault node. Steps:
 
 3. Derive the `id`: kebab-case the title (lowercase, spaces to hyphens, strip punctuation). The filename is `<id>.md`.
 
-4. Read `${CLAUDE_PLUGIN_ROOT}/skills/vault-author/templates/<type>.md` to get the skeleton.
+4. Read `${VAULT_PLUGIN_ROOT}/skills/vault-author/templates/<type>.md` to get the skeleton.
 
 5. Fill the frontmatter placeholders:
    - `id`: derived kebab id
@@ -34,7 +36,7 @@ Scaffold and author a new vault node. Steps:
    - `tags`: prompt for at least one `domain/*` tag, and always include the mirror tag `class/<doc_class>` matching the node's `doc_class` (the Obsidian graph colors by this tag)
    - `updated`: today's date (ISO)
 
-6. Write the scaffolded file. The PreToolUse hook validates it; fix any rejection before proceeding.
+6. Write the scaffolded file. Validate the written node explicitly in Codex; fix any reported errors.
 
 7. Hand off to the `vault-author` skill to author the body sections.
 
